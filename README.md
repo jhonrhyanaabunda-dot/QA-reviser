@@ -168,15 +168,42 @@ Variables**. `.env.example` has the same list with blank values.
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API → Project URL | Sent to the browser. Safe. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API → `anon` `public` | Sent to the browser. Safe — RLS is what protects the data. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API → `service_role` | **Server only. Bypasses RLS. Never prefix with `NEXT_PUBLIC_`.** |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Server only. |
 | `INTERNAL_JOB_SECRET` | `openssl rand -hex 32` | Authenticates the pipeline's calls to itself. |
 
 ### Recommended
 
 | Variable | Purpose |
 |---|---|
+| `ANTHROPIC_API_KEY` | Enables the 9 judgment rules and fact verification. **The app runs without it** — see below. |
 | `CRON_SECRET` | `openssl rand -hex 32`. Lets you trigger `/api/cron/reap` manually; Vercel's own cron requests are recognized without it. |
 | `FIRECRAWL_API_KEY` | Enables auditing of JavaScript-rendered pages and sites that block plain HTTP fetches. Without it those articles fail with a clear message instead of being audited. |
+
+### Running without an Anthropic key
+
+The audit completes end to end. Each AI step that cannot run records a warning
+on the report saying so, rather than failing the job.
+
+| Works | Needs the key |
+|---|---|
+| 25 of 34 rules — every regex, structural, SEO and link rule | 9 judgment rules: `PRICE_NO_DISCLAIMER`, `SUPERLATIVE_UNSUPPORTED`, `BRAND_MODEL_CAPITALIZATION`, `BRAND_DEALER_NAME`, `STYLE_PASSIVE_VOICE`, `MPG_NO_EPA_QUALIFIER`, `AI_TRIPLE_ADJECTIVE`, `SPEC_UNVERIFIED`, `FACT_NAP_MISMATCH` |
+| Link checking in full — broken links, redirects, competitor destinations, internal-link coverage, anchor text | Comparing claims against the crawled dealership pages. Claims are still extracted and listed as `unverified` with a note to check them by hand |
+| Dealership crawling, and claim extraction | Model-proposed safe fixes, e.g. correcting `Rav4` to `RAV4` |
+| Deterministic auto-fixes: typographic quotes, whitespace, `http:` → `https:` | The written report summary — a generated one is used instead |
+| Scoring, the final re-audit, the diff and HTML export | |
+
+Cost if you do add a key, measured on an 8,000-word pillar page with a
+dealership crawl — three model calls per audit, with the article sent as a
+cached prefix so later calls re-read it at a tenth of the price:
+
+| `AI_MODEL` | Per audit | Per 100 audits |
+|---|---|---|
+| `claude-opus-5` (default) | ~$0.27 | ~$27 |
+| `claude-sonnet-5` | ~$0.11 | ~$11 |
+| `claude-haiku-4-5` | ~$0.05 | ~$5 |
+
+Anthropic API billing is pay-as-you-go — there is no subscription, and an
+unused key costs nothing. Ticking **Skip fact verification** on an individual
+audit removes one of the three calls.
 
 ### Optional
 
