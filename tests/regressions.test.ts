@@ -120,3 +120,68 @@ test("typographic quote conversion does not change the word count", () => {
     assert.equal(curlQuotes(sample).length, sample.length, "substitution must be 1:1");
   }
 });
+
+test("a hero <header> holding the H1 is kept, not stripped as chrome", () => {
+  // A real dealership page put its H1 in <header class="hero">. Blanket-
+  // removing every <header> deleted the title and the audit then reported
+  // "Article has no H1" — a defect invented by the extractor.
+  const html = `<html><head><title>t</title></head><body>
+    <header class="hero"><nav><a href="/x">Menu</a></nav>
+      <h1>Buying a Hyundai in National City</h1>
+      <p>The lede paragraph that introduces the guide.</p></header>
+    <section><h2>Section</h2><p>${"Body prose about the vehicle. ".repeat(20)}</p></section>
+    <footer><p>Copyright notice</p></footer>
+  </body></html>`;
+  const a = extractArticle(html, "https://d.com/guide");
+
+  assert.equal(a.headings.filter((h) => h.level === 1).length, 1);
+  assert.equal(a.headings[0].text, "Buying a Hyundai in National City");
+  assert.match(a.text, /lede paragraph/);
+  assert.ok(!a.text.includes("Copyright notice"), "the footer is still chrome");
+  assert.ok(!a.text.includes("Menu"), "nav inside the kept header is still removed");
+});
+
+test("content spread across sibling sections is not two-thirds discarded", () => {
+  // These pages are a stack of <section> bands with no wrapper. Picking the
+  // single best-scoring container audited 2,856 of 8,656 words on a real page.
+  const band = (n: number) =>
+    `<section class="band"><div class="in"><h2>Part ${n}</h2>` +
+    `<p>${`Distinct prose for part ${n} that carries real content. `.repeat(12)}</p></div></section>`;
+  const html = `<html><head><title>t</title></head><body><h1>Guide</h1>
+    ${[1, 2, 3, 4, 5].map(band).join("")}</body></html>`;
+
+  const a = extractArticle(html, "https://d.com/guide");
+  assert.equal(a.headings.filter((h) => h.level === 2).length, 5, "every section must be captured");
+  for (const n of [1, 2, 3, 4, 5]) {
+    assert.match(a.text, new RegExp(`part ${n}`), `part ${n} is missing from the audited text`);
+  }
+});
+
+test("a conventional article still uses its own container, not the whole body", () => {
+  // The fallback must not throw away the container heuristic where it works.
+  const html = `<html><head><title>t</title></head><body>
+    <div class="sidebar"><p>Unrelated promo blurb.</p></div>
+    <article class="post-content"><h1>Real Title</h1>
+      <p>${"The actual article body carries nearly all of the words. ".repeat(30)}</p>
+    </article></body></html>`;
+  const a = extractArticle(html, "https://d.com/post");
+  assert.match(a.text, /actual article body/);
+  assert.ok(!a.text.includes("Unrelated promo blurb"), "sidebar must stay out of the audited text");
+});
+
+test("the broken-link totals only count genuinely dead links", () => {
+  // A 403 from a bot-blocking publisher is not a broken link. Counting it as
+  // one put a false high-severity finding on the authoritative sources a good
+  // article cites.
+  const rows = [
+    { ok: false, status_code: 404 },
+    { ok: false, status_code: 403 },
+    { ok: false, status_code: null },
+    { ok: true, status_code: 200 },
+  ];
+  const unverifiable = new Set([401, 403, 429, 999]);
+  const dead = rows.filter(
+    (r) => !r.ok && !(r.status_code !== null && unverifiable.has(r.status_code)),
+  );
+  assert.equal(dead.length, 2, "404 and unreachable count; 403 does not");
+});

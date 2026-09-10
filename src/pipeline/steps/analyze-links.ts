@@ -46,6 +46,9 @@ const COMPETITOR_PATTERNS = [
   /(?:^|\.)hendrickcars\.com$/i,
 ];
 
+/** Statuses that mean "we were refused", not "this link is dead". */
+const UNVERIFIABLE_STATUS = new Set([401, 403, 429, 999]);
+
 const GENERIC_ANCHORS = /^(?:click here|read more|learn more(?: here)?|here|this page|more|link|this)$/i;
 
 export async function analyzeLinksStep({
@@ -187,6 +190,31 @@ async function buildLinkIssues(
     if (row.is_dealership) dealershipLinks += 1;
 
     if (!row.ok) {
+      /**
+       * A bot block is not a broken link.
+       *
+       * Consumer Reports, Cloudflare-fronted sites and plenty of publishers
+       * answer 401/403/429 to anything without a browser fingerprint while
+       * serving readers perfectly well. Reporting those as high-severity
+       * broken links is a false positive on exactly the authoritative sources
+       * a good article cites — the fastest way to teach an editor to ignore
+       * this whole category of finding.
+       */
+      if (row.status_code !== null && UNVERIFIABLE_STATUS.has(row.status_code)) {
+        emit(
+          "LINK_BROKEN",
+          `Link could not be verified (HTTP ${row.status_code})`,
+          `${row.url} refused an automated request. This usually means the site ` +
+            `blocks bots rather than that the link is broken — open it to confirm.`,
+          {
+            evidence: row.url,
+            location: { url: row.url, status: row.status_code, unverified: true },
+            severity: "info",
+          },
+        );
+        continue;
+      }
+
       emit(
         "LINK_BROKEN",
         row.status_code

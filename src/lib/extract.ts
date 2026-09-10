@@ -11,10 +11,23 @@ import { normalizeUrl } from "./url";
  * body reliably and in single-digit milliseconds.
  */
 
-const STRIP = [
+/** Never content, under any circumstances. */
+const STRIP_ALWAYS = [
   "script", "style", "noscript", "iframe", "svg", "form", "button",
+  "[aria-hidden=true]",
+].join(",");
+
+/**
+ * Page chrome — removed *unless* it contains the H1.
+ *
+ * A hero section is marked up as <header> as often as a masthead is, and it
+ * holds the H1 and the lede. Blanket-removing every <header> deleted the title
+ * of a real dealership page and then reported it as having no H1 — a defect
+ * invented by the extractor.
+ */
+const STRIP_CHROME = [
   "nav", "header", "footer", "aside",
-  "[role=navigation]", "[role=banner]", "[role=contentinfo]", "[aria-hidden=true]",
+  "[role=navigation]", "[role=banner]", "[role=contentinfo]",
 ].join(",");
 
 const NEGATIVE = /(?:comment|share|social|sidebar|footer|header|nav|menu|promo|banner|advert|subscribe|newsletter|related|breadcrumb|cookie|popup|modal|widget|disclaimer|copyright)/i;
@@ -44,17 +57,29 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     attr($, 'meta[property="og:description"]', "content");
 
   // Work on a clone so metadata above is read from the untouched document.
-  $(STRIP).remove();
+  stripChrome($);
   normalizeLineBreaks($);
 
-  const container = pickContainer($);
-  const scope = container ?? $("body");
+  const scope = pickScope($);
 
   const headings: { level: number; text: string }[] = [];
   scope.find("h1, h2, h3, h4, h5, h6").each((_, el) => {
     const text = $(el).text().trim().replace(/\s+/g, " ");
     if (text) headings.push({ level: Number(el.tagName.slice(1)), text });
   });
+
+  /**
+   * "Does this page have exactly one H1" is a question about the document, not
+   * about whichever sub-tree holds the prose. Pages routinely put the H1 in a
+   * hero above the <article>; scoping the check to the container reported those
+   * as having no H1 at all.
+   */
+  if (!headings.some((heading) => heading.level === 1)) {
+    $("h1").each((_, el) => {
+      const text = $(el).text().trim().replace(/\s+/g, " ");
+      if (text) headings.unshift({ level: 1, text });
+    });
+  }
 
   const images: { src: string; alt: string | null }[] = [];
   scope.find("img").each((_, el) => {
@@ -85,7 +110,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     title,
     byline,
     metaDescription,
-    html: (container ? $.html(container) : $.html(scope)) ?? "",
+    html: $.html(scope) ?? "",
     text,
     markdown,
     wordCount: countWords(text),
@@ -94,6 +119,19 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     links,
     renderMode: "fetch",
   };
+}
+
+function stripChrome($: cheerio.CheerioAPI): void {
+  $(STRIP_ALWAYS).remove();
+  $(STRIP_CHROME).each((_, el) => {
+    const node = $(el);
+    if (node.find("h1").length > 0) {
+      // Keep the section, drop the navigation inside it.
+      node.find("nav, [role=navigation]").remove();
+      return;
+    }
+    node.remove();
+  });
 }
 
 /**
@@ -134,6 +172,70 @@ function pickByline($: cheerio.CheerioAPI): string | null {
 function text($: cheerio.CheerioAPI, selector: string): string | null {
   const value = $(selector).first().text().trim().replace(/\s+/g, " ");
   return value || null;
+}
+
+/**
+ * Choose the region to audit.
+ *
+ * A single best-scoring container is right for a conventional article, but a
+ * lot of dealership pillar pages are a stack of sibling <section> bands with no
+ * wrapper around them. On one real page that shape made the best container hold
+ * 2,856 of the document's 8,656 words — two thirds of the content never
+ * reached the rule engine, and every finding in it was silently missed.
+ *
+ * So: take the best container only when it actually accounts for most of the
+ * page. Otherwise audit the whole cleaned body, which is safe because the
+ * navigation, footers and asides are already gone.
+ */
+const MIN_CONTAINER_COVERAGE = 0.6;
+
+function pickScope($: cheerio.CheerioAPI): cheerio.Cheerio<AnyNode> {
+  const body = $("body") as cheerio.Cheerio<AnyNode>;
+  const bodyWords = countWords(body.text());
+  const container = pickContainer($);
+
+  if (!container) return body;
+  if (bodyWords === 0) return container;
+
+  const coverage = countWords(container.text()) / bodyWords;
+  if (coverage >= MIN_CONTAINER_COVERAGE) {
+    /**
+     * If the H1 sits outside the container — a page-level hero above the
+     * <article> — widen to the ancestor holding both. The lede under an H1 is
+     * the most-read text on the page and the natural home of exactly the
+     * opener clichés AI_HEDGE_OPENER looks for, so auditing the body while
+     * skipping the opening paragraph misses findings by construction.
+     */
+    const h1 = $("h1").first();
+    if (h1.length && container.find("h1").length === 0) {
+      return commonAncestor($, container, h1 as cheerio.Cheerio<AnyNode>) ?? body;
+    }
+    return container;
+  }
+
+  // The content is spread across siblings. Prefer <main> if it covers the page,
+  // otherwise the body itself.
+  const main = $("main").first() as cheerio.Cheerio<AnyNode>;
+  if (main.length && countWords(main.text()) / bodyWords >= MIN_CONTAINER_COVERAGE) {
+    return main;
+  }
+  return body;
+}
+
+/** Nearest element containing both nodes, or null. */
+function commonAncestor(
+  $: cheerio.CheerioAPI,
+  a: cheerio.Cheerio<AnyNode>,
+  b: cheerio.Cheerio<AnyNode>,
+): cheerio.Cheerio<AnyNode> | null {
+  const ancestors = new Set<AnyNode>([...a.parents().toArray(), ...a.toArray()]);
+  for (const node of [...b.toArray(), ...b.parents().toArray()]) {
+    if (ancestors.has(node)) return $(node) as cheerio.Cheerio<AnyNode>;
+  }
+  for (const node of b.parents().toArray()) {
+    if (ancestors.has(node)) return $(node) as cheerio.Cheerio<AnyNode>;
+  }
+  return null;
 }
 
 /**
@@ -389,7 +491,7 @@ export function extractPageFacts(html: string, url: string): {
 } {
   const $ = cheerio.load(html);
   const title = pickTitle($);
-  $(STRIP).remove();
+  stripChrome($);
   normalizeLineBreaks($);
   const body = $("body");
   return {
