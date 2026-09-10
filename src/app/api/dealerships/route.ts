@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
+import { WORKSPACE_USER_ID } from "@/lib/workspace";
 import { parseUserUrl, registrableHost } from "@/lib/url";
 
 export const runtime = "nodejs";
@@ -16,10 +17,8 @@ const schema = z.object({
 });
 
 export async function GET() {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
   const { data, error } = await supabase
     .from("dealerships")
     .select("*, dealership_domains(id, domain, label, is_approved, max_pages)")
@@ -30,8 +29,6 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   let payload: z.infer<typeof schema>;
   try {
@@ -45,12 +42,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Primary domain is not a valid domain." }, { status: 400 });
   }
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { data: dealership, error } = await supabase
     .from("dealerships")
     .insert({
-      user_id: user.id,
+      user_id: WORKSPACE_USER_ID,
       name: payload.name.trim(),
       primary_domain: primary,
       city: payload.city?.trim() || null,

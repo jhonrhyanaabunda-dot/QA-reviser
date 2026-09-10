@@ -1,15 +1,12 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
 import { StatusPill } from "@/components/status-pill";
 
 export const dynamic = "force-dynamic";
 
 export default async function AuditsPage() {
-  const user = await getUser();
-  if (!user) redirect("/login");
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
   const { data: audits } = await supabase
     .from("audit_jobs")
     .select("id, source_url, status, progress, status_message, created_at, finished_at")

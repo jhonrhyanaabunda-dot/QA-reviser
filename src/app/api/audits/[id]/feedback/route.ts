@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
+import { WORKSPACE_USER_ID } from "@/lib/workspace";
 
 /**
  * Human review of a finding.
@@ -22,8 +23,6 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id: jobId } = await params;
 
@@ -34,7 +33,7 @@ export async function POST(
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   // RLS scopes this to the caller's own issues.
   const { data: issue } = await supabase
@@ -49,7 +48,7 @@ export async function POST(
   const { data, error } = await supabase
     .from("qa_feedback")
     .insert({
-      user_id: user.id,
+      user_id: WORKSPACE_USER_ID,
       issue_id: issue.id,
       rule_id: issue.rule_id,
       job_id: jobId,

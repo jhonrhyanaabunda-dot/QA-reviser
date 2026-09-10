@@ -1,5 +1,5 @@
 import { after, NextResponse } from "next/server";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
 import { triggerAdvance } from "@/pipeline/runner";
 
 /**
@@ -25,11 +25,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { data, error } = await supabase
     .from("audit_jobs")

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
-import { getUser } from "@/lib/supabase/server";
-import { SignOutButton } from "@/components/sign-out-button";
 
 export const metadata: Metadata = {
   title: "QA Reviser",
@@ -10,10 +8,9 @@ export const metadata: Metadata = {
     "Audit dealership articles for accuracy, links, AI writing patterns and QA-rule compliance.",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const user = await getUser().catch(() => null);
 
   return (
     <html lang="en">
@@ -31,15 +28,12 @@ export default async function RootLayout({
               QA Reviser
             </Link>
 
-            {user && (
-              <nav className="flex items-center gap-1 text-sm">
-                <Link className="btn" href="/">New audit</Link>
-                <Link className="btn" href="/audits">Audits</Link>
-                <Link className="btn" href="/dealerships">Dealerships</Link>
-                <Link className="btn" href="/rules">Rules</Link>
-                <SignOutButton />
-              </nav>
-            )}
+            <nav className="flex items-center gap-1 text-sm">
+              <Link className="btn" href="/">New audit</Link>
+              <Link className="btn" href="/audits">Audits</Link>
+              <Link className="btn" href="/dealerships">Dealerships</Link>
+              <Link className="btn" href="/rules">Rules</Link>
+            </nav>
           </div>
         </header>
 

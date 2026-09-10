@@ -21,11 +21,14 @@ function optional(name: string): string | undefined {
 
 export const env = {
   // --- Supabase ---
+  /**
+   * Server-only. Nothing Supabase-related reaches the browser any more: with
+   * no login there is no session, so every query runs in a route handler with
+   * the service-role key. The NEXT_PUBLIC_ name is still accepted so an
+   * existing deployment keeps working, but SUPABASE_URL is the correct one.
+   */
   get supabaseUrl() {
-    return required("NEXT_PUBLIC_SUPABASE_URL");
-  },
-  get supabaseAnonKey() {
-    return required("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    return optional("SUPABASE_URL") ?? required("NEXT_PUBLIC_SUPABASE_URL");
   },
   get supabaseServiceRoleKey() {
     return required("SUPABASE_SERVICE_ROLE_KEY");

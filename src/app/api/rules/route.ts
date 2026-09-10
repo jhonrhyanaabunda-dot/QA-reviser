@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
+import { WORKSPACE_USER_ID } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,10 +35,8 @@ const updateSchema = z.object({
  * weight; a rule rejected far more often than accepted is miscalibrated.
  */
 export async function GET() {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const [{ data: rules, error }, { data: feedback }] = await Promise.all([
     supabase.from("qa_rules").select("*").order("sort_order", { ascending: true }),
@@ -63,8 +62,6 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   let payload: z.infer<typeof createSchema>;
   try {
@@ -97,12 +94,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { data, error } = await supabase
     .from("qa_rules")
     .insert({
-      user_id: user.id,
+      user_id: WORKSPACE_USER_ID,
       dealership_id: payload.dealershipId ?? null,
       code: payload.code,
       title: payload.title,
@@ -143,8 +140,6 @@ export async function POST(request: Request) {
  * clones it into a user-owned override rather than mutating the shared row.
  */
 export async function PATCH(request: Request) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   let payload: z.infer<typeof updateSchema>;
   try {
@@ -153,7 +148,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { data: rule } = await supabase
     .from("qa_rules")
@@ -174,7 +169,7 @@ export async function PATCH(request: Request) {
     const { data, error } = await supabase
       .from("qa_rules")
       .insert({
-        user_id: user.id,
+        user_id: WORKSPACE_USER_ID,
         dealership_id: rule.dealership_id,
         code: rule.code,
         title: rule.title,
@@ -210,13 +205,11 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required." }, { status: 400 });
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
   // RLS restricts deletes to the user's own rules, so built-ins are safe.
   const { error } = await supabase.from("qa_rules").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

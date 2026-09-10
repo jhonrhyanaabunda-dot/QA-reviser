@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
+import { WORKSPACE_USER_ID } from "@/lib/workspace";
 import { parseUserUrl } from "@/lib/url";
 import { STEP_META } from "@/lib/types";
 import { triggerAdvance } from "@/pipeline/runner";
@@ -18,11 +19,9 @@ const submitSchema = z.object({
 
 /** GET /api/audits — the signed-in user's audits, newest first. */
 export async function GET(request: NextRequest) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const limit = Math.min(Number(request.nextUrl.searchParams.get("limit") ?? 25), 100);
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { data, error } = await supabase
     .from("audit_jobs")
@@ -41,8 +40,6 @@ export async function GET(request: NextRequest) {
  * polls the status endpoint from here; this request never waits for the audit.
  */
 export async function POST(request: NextRequest) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   let payload: z.infer<typeof submitSchema>;
   try {
@@ -62,7 +59,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   // RLS already scopes this, but checking explicitly gives a useful error
   // instead of a silent null dealership on a mistyped id.
@@ -80,7 +77,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase
     .from("audit_jobs")
     .insert({
-      user_id: user.id,
+      user_id: WORKSPACE_USER_ID,
       dealership_id: payload.dealershipId ?? null,
       source_url: url.toString(),
       status: "queued",

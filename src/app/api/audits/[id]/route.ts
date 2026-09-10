@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
 
 /** GET /api/audits/:id — the full report. */
 export const runtime = "nodejs";
@@ -9,11 +9,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { data: job, error } = await supabase
     .from("audit_jobs")
@@ -51,11 +49,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { error } = await supabase.from("audit_jobs").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

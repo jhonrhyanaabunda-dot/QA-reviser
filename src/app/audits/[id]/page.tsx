@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { AuditView } from "@/components/audit-view";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +10,9 @@ export default async function AuditPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await getUser();
-  if (!user) redirect("/login");
 
   const { id } = await params;
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   const { data: job } = await supabase
     .from("audit_jobs")

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
 import { parseUserUrl, registrableHost } from "@/lib/url";
 
 export const runtime = "nodejs";
@@ -17,8 +17,6 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
 
@@ -29,7 +27,7 @@ export async function PATCH(
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }
 
-  const supabase = await createServerSupabase();
+  const supabase = db();
 
   if (payload.name) {
     const { error } = await supabase
@@ -73,11 +71,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
-  const supabase = await createServerSupabase();
+  const supabase = db();
   const { error } = await supabase.from("dealerships").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ deleted: id });

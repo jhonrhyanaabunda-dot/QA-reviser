@@ -1,9 +1,9 @@
 /**
- * Screenshot the running app, signed in.
+ * Screenshot the running app.
  *
- * Drives headless Chrome over the DevTools Protocol so a real session cookie
- * can be installed before navigating — otherwise every authenticated page just
- * redirects to /login. Local harness; not part of the deployment.
+ * Drives headless Chrome over the DevTools Protocol, which is what makes it
+ * possible to click a control before capturing so tabbed views can be
+ * screenshotted. Local harness; not part of the deployment.
  *
  *   npx tsx scripts/shot.mts <out-dir> [path ...]
  *
@@ -13,7 +13,6 @@
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { createClient } from "@supabase/supabase-js";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333;
@@ -22,25 +21,6 @@ const APP = "http://localhost:3000";
 const outDir = process.argv[2] ?? "/tmp/shots";
 const paths = process.argv.slice(3);
 mkdirSync(outDir, { recursive: true });
-
-// --- session cookie -------------------------------------------------------
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const anon = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-  auth: { persistSession: false },
-});
-const { data, error } = await anon.auth.signInWithPassword({
-  email: process.env.DEMO_EMAIL ?? "demo@example.com",
-  password: process.env.DEMO_PASSWORD ?? "demo-password-123",
-});
-if (error || !data.session) throw new Error(`sign-in failed: ${error?.message}`);
-
-const ref = new URL(supabaseUrl).hostname.split(".")[0];
-const cookie = {
-  name: `sb-${ref}-auth-token`,
-  value: `base64-${Buffer.from(JSON.stringify(data.session)).toString("base64")}`,
-  domain: "localhost",
-  path: "/",
-};
 
 // --- chrome ---------------------------------------------------------------
 const chrome = spawn(CHROME, [
@@ -93,8 +73,6 @@ function send(method: string, params: Record<string, unknown> = {}) {
 }
 
 await send("Page.enable");
-await send("Network.enable");
-await send("Network.setCookie", { ...cookie, url: APP });
 await send("Emulation.setDeviceMetricsOverride", {
   width: 1280, height: 900, deviceScaleFactor: 2, mobile: false,
 });

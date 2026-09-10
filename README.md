@@ -18,6 +18,7 @@ browser process, or the filesystem.
 
 - [How it works](#how-it-works)
 - [Architecture](#architecture)
+- [Access](#access)
 - [Deploy to Vercel](#deploy-to-vercel)
 - [Environment variables](#environment-variables)
 - [Database setup](#database-setup)
@@ -108,12 +109,46 @@ killed, the lease lapses and the cron reaper picks the job up where it left off.
 | Layer | Choice |
 |---|---|
 | Framework | Next.js 15 (App Router), TypeScript, React 19 |
-| Database + Auth | Supabase (Postgres + Supabase Auth), row-level security on every table |
+| Database | Supabase (Postgres). No login — one shared workspace; see [Access](#access) |
 | AI | Anthropic Claude (`claude-opus-5` by default) |
 | HTML parsing | `cheerio` — no headless browser |
 | JS rendering fallback | Firecrawl HTTP API (optional) |
 | Background work | Self-chaining route handlers + Vercel Cron recovery |
 | Styling | Tailwind CSS v4 |
+
+---
+
+## Access
+
+**There is no login.** Anyone who can reach the deployment can read and change
+every audit, dealership and QA rule. That is a deliberate choice for an internal
+tool, but it means the URL is the only thing standing between your data and a
+stranger.
+
+The database itself is *not* open. Row Level Security is enabled on every table
+and, with no session, it denies the anon role outright — an anon-key read
+returns zero rows and a write is refused. The browser holds no Supabase key at
+all; every query runs server-side in a route handler with the service-role key.
+So the exposure is the application, not the data store.
+
+**If the deployment should not be public**, put the protection at the platform
+instead of in the app: Vercel → Settings → Deployment Protection → enable
+**Vercel Authentication**. Only members of your Vercel team can then open it,
+with no accounts to manage. The pipeline keeps working — it sends
+`VERCEL_AUTOMATION_BYPASS_SECRET` on its internal calls, which Vercel provides
+automatically once protection is on.
+
+Two consequences worth knowing either way:
+
+- Anyone who can open the app can submit URLs for your server to fetch. The
+  SSRF guard blocks private and internal addresses, but a visitor can still
+  spend your Anthropic budget by running audits.
+- Everything lives in one shared workspace. There is no separation between
+  people using the tool, and no audit trail of who changed what.
+
+Adding accounts back later is a small change, not a rewrite: the `user_id`
+columns and RLS policies are all still in place, pointed at a single workspace
+row by `supabase/migrations/0004_single_workspace.sql`.
 
 ---
 
@@ -126,8 +161,8 @@ killed, the lease lapses and the cron reaper picks the job up where it left off.
    - `supabase/migrations/0001_init.sql`
    - `supabase/migrations/0002_rls.sql`
    - `supabase/migrations/0003_seed_rules.sql`
-3. From **Settings → API**, copy the project URL, the `anon` key, and the
-   `service_role` key.
+3. From **Settings → API**, copy the project URL and the `service_role` key.
+   The `anon` key is not used — the browser never talks to Supabase.
 
 ### 2. Push to GitHub
 
@@ -150,7 +185,7 @@ git push -u origin main
 
 ### 4. Verify
 
-- Visit the deployment, create an account, add a dealership with its domain.
+- Visit the deployment, add a dealership with its domain.
 - Submit an article URL and watch the progress steps advance.
 - Check **Settings → Cron Jobs** shows `/api/cron/reap`.
 
@@ -165,8 +200,7 @@ Variables**. `.env.example` has the same list with blank values.
 
 | Variable | Where to get it | Notes |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API → Project URL | Sent to the browser. Safe. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API → `anon` `public` | Sent to the browser. Safe — RLS is what protects the data. |
+| `SUPABASE_URL` | Supabase → Settings → API → Project URL | Server only. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API → `service_role` | **Server only. Bypasses RLS. Never prefix with `NEXT_PUBLIC_`.** |
 | `INTERNAL_JOB_SECRET` | `openssl rand -hex 32` | Authenticates the pipeline's calls to itself. |
 
@@ -225,9 +259,10 @@ Schema lives in `supabase/migrations/`, applied in filename order.
 
 | File | Contents |
 |---|---|
-| `0001_init.sql` | Enums, all 13 tables, indexes, `updated_at` triggers, and the trigger that mirrors `auth.users` into `profiles`. |
+| `0001_init.sql` | Enums, all 13 tables, indexes and `updated_at` triggers. |
 | `0002_rls.sql` | Row-level security. Every table is owner-scoped; job-scoped child tables are reachable only through a job the caller owns. |
 | `0003_seed_rules.sql` | The 34 built-in QA rules. Idempotent — safe to re-run to pick up rule changes. |
+| `0004_single_workspace.sql` | Removes the account system and points every row at one shared workspace. |
 
 Tables: `profiles`, `dealerships`, `dealership_domains`, `qa_rules`,
 `qa_feedback`, `audit_jobs`, `articles` (original **and** revised),
@@ -250,7 +285,7 @@ needed. Requires Docker.
 
 ```bash
 npm install
-npx supabase start          # Postgres + Auth on 127.0.0.1:54321, applies migrations
+npx supabase start          # Postgres on 127.0.0.1:54321, applies migrations
 cp .env.example .env.local  # then fill in, using the keys `supabase start` printed
 npm run dev                 # http://localhost:3000
 ```
@@ -291,7 +326,7 @@ set -a && . ./.env.local && set +a
 npx tsx scripts/e2e-local.ts
 npx tsx scripts/e2e-local.ts "https://some-dealer.com/blog/post" "some-dealer.com"
 
-# Sign in, fetch every authenticated page, and check RLS isolation between users.
+# Fetch every page and check it renders, stylesheet included.
 npx tsx scripts/ui-check.mts
 ```
 
@@ -345,13 +380,12 @@ npm test
 ### Verified against a live local stack
 
 The following were exercised end to end against real Postgres, real Supabase
-Auth, and real websites — not mocked:
+and real websites — not mocked:
 
 - All three migrations applying to a clean database, and the 34-rule seed
-- Sign-up, the `profiles` mirror trigger, and session-cookie auth on every page
-- **RLS isolation** — a second user requesting another user's audit gets a 404
-- Auth guards: pages redirect to `/login`, API routes return JSON 401, the
-  internal pipeline and cron routes reject a wrong secret
+- **The database rejects the browser key** — with RLS on and no session, an
+  anon-key read returns 0 rows and a write is refused outright
+- The internal pipeline and cron routes reject a wrong shared secret
 - A complete nine-step audit on a real article, finishing in ~8s
 - A 20,000-word, 795-link article: chunked link checking, the 150-link cap,
   multi-page dealership crawling with frontier expansion
@@ -457,7 +491,7 @@ src/
 │   │   ├── jobs/advance/      internal: run one pipeline step
 │   │   └── cron/reap/         recovery sweep for stalled jobs
 │   ├── audits/[id]/           progress + report
-│   ├── dealerships/  rules/  login/
+│   ├── dealerships/  rules/
 │   └── layout.tsx  page.tsx  globals.css
 ├── components/                audit form, progress, report, managers
 ├── lib/

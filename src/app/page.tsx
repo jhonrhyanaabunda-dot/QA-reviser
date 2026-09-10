@@ -1,24 +1,12 @@
 import Link from "next/link";
 import { AuditForm } from "@/components/audit-form";
-import { createServerSupabase, getUser } from "@/lib/supabase/server";
+import { db } from "@/lib/supabase/server";
 import { StatusPill } from "@/components/status-pill";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const user = await getUser();
-  if (!user) {
-    return (
-      <div className="py-10">
-        <h1 className="text-xl font-semibold">QA Reviser</h1>
-        <p className="mt-2 text-sm muted">
-          <Link className="underline" href="/login">Sign in</Link> to run an audit.
-        </p>
-      </div>
-    );
-  }
-
-  const supabase = await createServerSupabase();
+  const supabase = db();
   const { data: recent } = await supabase
     .from("audit_jobs")
     .select("id, source_url, status, progress, status_message, created_at")
