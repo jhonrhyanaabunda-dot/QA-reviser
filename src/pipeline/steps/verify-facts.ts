@@ -140,7 +140,20 @@ export async function verifyFactsStep({
     });
     checks = result.checks;
   } catch (error) {
+    // The claims were extracted deterministically and are useful on their own.
+    // Dropping them because the model was unavailable would hide the list of
+    // things a human still has to check by hand — the worst outcome for a tool
+    // whose value is telling you what has not been verified.
     warn(`Fact verification did not complete: ${(error as Error).message}`);
+    await db.from("fact_checks").insert(
+      claims.map((claim) => ({
+        job_id: job.id,
+        claim,
+        verdict: "unverified" as const,
+        confidence: 0,
+        notes: "Automated verification was unavailable — check this claim by hand.",
+      })),
+    );
     return { kind: "advance", message: "Applying QA rules..." };
   }
 

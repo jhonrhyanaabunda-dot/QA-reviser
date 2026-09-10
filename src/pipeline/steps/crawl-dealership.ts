@@ -57,11 +57,36 @@ export async function crawlDealershipStep({
   const seen = new Set(state.crawlSeen ?? []);
   let crawled = state.crawlCount ?? 0;
 
-  // First entry into this step: seed the frontier from the domain roots.
+  // First entry into this step: seed the frontier.
   if (!state.crawlQueue) {
-    queue = domains
-      .map((domain) => normalizeUrl(`https://${domain.replace(/^https?:\/\//, "")}`))
-      .filter((u): u is string => Boolean(u));
+    const seeds = new Set<string>();
+
+    for (const domain of domains) {
+      const host = domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+      // Both variants, www first. Plenty of dealership sites serve only the
+      // www host with a valid certificate — hyundaidalton.com's apex cert does
+      // not cover the apex name at all — so seeding the bare domain alone
+      // fails TLS and the crawl silently finds nothing.
+      for (const candidate of [`https://www.${host}`, `https://${host}`]) {
+        const normalized = normalizeUrl(candidate);
+        if (normalized) seeds.add(normalized);
+      }
+    }
+
+    /**
+     * Also seed from the article's own dealership links.
+     *
+     * Those are the exact pages the article points a reader at, which makes
+     * them the pages most worth having when verifying the article's claims —
+     * and they are already known to be well-formed URLs on an approved domain.
+     */
+    for (const link of state.linkQueue ?? []) {
+      if (!isCrawlableUrl(link.url)) continue;
+      if (!matchesAnyDomain(link.url, domains)) continue;
+      seeds.add(link.url);
+    }
+
+    queue = [...seeds];
   }
 
   if (queue.length === 0 || crawled >= budget) {
