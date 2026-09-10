@@ -58,6 +58,19 @@ export const env = {
   get cronSecret() {
     return optional("CRON_SECRET");
   },
+
+  /**
+   * Vercel Deployment Protection bypass.
+   *
+   * Preview deployments are protected by default, so the pipeline's calls back
+   * into itself are answered by Vercel's auth wall rather than the route — the
+   * audit then stalls with no error anywhere. Vercel exposes this secret
+   * automatically once protection is enabled; when present it is sent on the
+   * internal requests so they reach the function.
+   */
+  get vercelBypassSecret() {
+    return optional("VERCEL_AUTOMATION_BYPASS_SECRET");
+  },
 } as const;
 
 /**

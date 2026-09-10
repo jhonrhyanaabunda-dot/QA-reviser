@@ -295,6 +295,12 @@ export async function triggerAdvance(jobId: string): Promise<void> {
       headers: {
         "Content-Type": "application/json",
         "x-internal-secret": env.internalJobSecret,
+        // Present only when Deployment Protection is enabled. Without it a
+        // protected preview answers this request with Vercel's login page
+        // instead of running the step, and the audit stalls silently.
+        ...(env.vercelBypassSecret
+          ? { "x-vercel-protection-bypass": env.vercelBypassSecret }
+          : {}),
       },
       body: JSON.stringify({ jobId }),
     });

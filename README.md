@@ -368,14 +368,27 @@ checklist under [Operational notes](#operational-notes) once your keys are in.
 
 ### Vercel plan limits
 
-- **Cron frequency.** `vercel.json` schedules the reaper every 5 minutes. The
-  Hobby plan allows only one cron invocation per day — either upgrade to Pro or
-  change the schedule to `0 0 * * *`. The reaper is a recovery path, not the
-  primary one: the pipeline chains itself, so a less frequent reaper means a
-  stalled job waits longer, not that audits stop working.
+- **Cron frequency.** `vercel.json` schedules the reaper once daily
+  (`0 3 * * *`), because Hobby allows only one cron run per day and a more
+  frequent schedule is **rejected at deploy time**. On Pro, change it to
+  `*/5 * * * *`.
+
+  Recovery does not depend on the cron. The pipeline chains itself, and the
+  status endpoint the browser already polls will restart a job whose lease has
+  lapsed — so a dropped dispatch recovers within a poll while anyone is watching
+  the audit. The cron only catches jobs nobody is looking at.
+
 - **Function duration.** Routes declare `maxDuration = 60`. Every step is sized
-  to finish well inside that; the crawl and link steps chunk their work
-  specifically so they can. On Pro you can raise it, but you should not need to.
+  to finish inside that; the crawl and link steps chunk their work specifically
+  so they can. On Pro you can raise it, but you should not need to.
+
+- **Deployment Protection.** Preview deployments are protected by default, which
+  means the pipeline's calls back into itself are answered by Vercel's login
+  page rather than by the route — the audit stalls with no error. When
+  protection is on, Vercel exposes `VERCEL_AUTOMATION_BYPASS_SECRET`
+  automatically; the pipeline sends it on internal requests, so previews work
+  without any configuration from you. Nothing to do unless you have disabled
+  that automatic variable.
 
 ### After your first deploy, verify
 
