@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+:root {
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --border: #e5e3df;
+  --border-strong: #d4d1cb;
+  --ink: #1c1b19;
+  --ink-muted: #6b6862;
+  --accent: #b4522a;
+  --accent-soft: #fdf2ec;
+
+  --critical: #a52020;
+  --high: #b4522a;
+  --medium: #8a6d1f;
+  --low: #4a6b8a;
+  --info: #6b6862;
+  --good: #2d6a4a;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16150f;
+    --panel: #1e1d17;
+    --border: #33312a;
+    --border-strong: #46433a;
+    --ink: #f0eee7;
+    --ink-muted: #a09c92;
+    --accent: #e0855c;
+    --accent-soft: #2c2119;
+
+    --critical: #e06b6b;
+    --high: #e0855c;
+    --medium: #d4b25a;
+    --low: #7fa8cc;
+    --info: #a09c92;
+    --good: #6bbd93;
+
+    color-scheme: dark;
+  }
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border: 1px solid var(--border-strong);
+    background: var(--panel);
+    color: var(--ink);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  }
+
+  .btn:hover:not(:disabled) {
+    border-color: var(--ink-muted);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    opacity: 0.9;
+    border-color: var(--accent);
+  }
+
+  .input {
+    width: 100%;
+    border: 1px solid var(--border-strong);
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 0.375rem;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  .label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+    margin-bottom: 0.35rem;
+  }
+
+  .muted {
+    color: var(--ink-muted);
+  }
+}
