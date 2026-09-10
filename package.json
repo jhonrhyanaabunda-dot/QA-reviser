@@ -2,7 +2,7 @@
   "name": "qa-reviser",
   "version": "1.0.0",
   "private": true,
-  "description": "Automotive dealership article QA auditor \u2014 extracts, crawls, audits, fact-checks and safely revises articles.",
+  "description": "Automotive dealership article QA auditor — extracts, crawls, audits, fact-checks and safely revises articles.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,6 +16,7 @@
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.58.0",
     "cheerio": "^1.1.2",
+    "diff": "^9.0.0",
     "next": "^15.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import type { ExtractedArticle, LinkRef } from "./types";
+import { replaceMarkdownLinks } from "./markdown";
 import { normalizeUrl } from "./url";
 
 /**
@@ -537,7 +538,6 @@ export function markdownToPlainText(markdown: string): string {
           .replace(/^\s{0,3}>\s?/, "")
           .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/, "")
           .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-          .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
           .replace(/\*\*([^*]+)\*\*/g, "$1")
           .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1")
           .replace(/`([^`]+)`/g, "$1")
@@ -548,7 +548,9 @@ export function markdownToPlainText(markdown: string): string {
       .join("\n"),
   );
 
-  return rendered.filter(Boolean).join("\n\n");
+  // Link syntax is unwrapped last, with balanced parentheses, so a URL
+  // containing "(XA50)" does not leave a stray bracket in the audited text.
+  return replaceMarkdownLinks(rendered.filter(Boolean).join("\n\n"), (label) => label);
 }
 
 /**

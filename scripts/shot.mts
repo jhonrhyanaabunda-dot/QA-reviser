@@ -6,6 +6,10 @@
  * redirects to /login. Local harness; not part of the deployment.
  *
  *   npx tsx scripts/shot.mts <out-dir> [path ...]
+ *
+ * A path may carry a "#click=<button text>" suffix to press a control before
+ * capturing, so tabbed views can be screenshotted:
+ *   npx tsx scripts/shot.mts /tmp/shots "/audits/abc#click=Revised article"
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -95,13 +99,29 @@ await send("Emulation.setDeviceMetricsOverride", {
   width: 1280, height: 900, deviceScaleFactor: 2, mobile: false,
 });
 
-for (const path of paths) {
+for (const spec of paths) {
+  const [path, click] = spec.split("#click=");
   await send("Page.navigate", { url: `${APP}${path}` });
   await sleep(2200);
+
+  if (click) {
+    await send("Runtime.evaluate", {
+      expression: `
+        (() => {
+          const target = [...document.querySelectorAll("button")]
+            .find((b) => b.textContent.trim().startsWith(${JSON.stringify(click)}));
+          if (target) { target.click(); return true; }
+          return false;
+        })()
+      `,
+    });
+    await sleep(1200);
+  }
   const { data: png } = (await send("Page.captureScreenshot", {
     format: "png", captureBeyondViewport: true,
   })) as { data: string };
-  const name = (path.replace(/^\//, "").replace(/[^\w.-]/g, "_") || "home") + ".png";
+  const label = click ? `_${click.replace(/[^\w]/g, "")}` : "";
+  const name = (path.replace(/^\//, "").replace(/[^\w.-]/g, "_") || "home") + label + ".png";
   writeFileSync(`${outDir}/${name}`, Buffer.from(png, "base64"));
   console.log(`  ${outDir}/${name}`);
 }

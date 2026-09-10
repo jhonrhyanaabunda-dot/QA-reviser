@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { RevisedArticleDiff } from "./revised-article-diff";
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: "var(--critical)",
@@ -179,7 +180,7 @@ export function AuditReport({ data }: { data: ReportData }) {
       {tab === "links" && <LinksTab links={data.links} />}
       {tab === "facts" && <FactsTab facts={data.facts} />}
       {tab === "fixes" && <FixesTab fixes={data.fixes} />}
-      {tab === "article" && <ArticleTab articles={data.articles} />}
+      {tab === "article" && <ArticleTab articles={data.articles} fixes={data.fixes} />}
     </div>
   );
 }
@@ -505,58 +506,19 @@ function FixesTab({ fixes }: { fixes: AutoFix[] }) {
   );
 }
 
-function ArticleTab({ articles }: { articles: Article[] }) {
+function ArticleTab({ articles, fixes }: { articles: Article[]; fixes: AutoFix[] }) {
   const revised = articles.find((a) => a.kind === "revised");
   const original = articles.find((a) => a.kind === "original");
-  const [showOriginal, setShowOriginal] = useState(false);
-  const shown = showOriginal ? original : revised ?? original;
 
-  const [copied, setCopied] = useState(false);
-
-  if (!shown?.markdown) {
+  if (!revised?.markdown || !original?.markdown) {
     return <p className="panel p-5 text-sm muted">No article text is available.</p>;
   }
 
   return (
-    <div className="panel p-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-1">
-          <button
-            className="btn text-xs"
-            onClick={() => setShowOriginal(false)}
-            style={!showOriginal ? { borderColor: "var(--accent)" } : undefined}
-          >
-            Revised
-          </button>
-          <button
-            className="btn text-xs"
-            onClick={() => setShowOriginal(true)}
-            style={showOriginal ? { borderColor: "var(--accent)" } : undefined}
-          >
-            Original
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs muted">{shown.word_count} words</span>
-          <button
-            className="btn text-xs"
-            onClick={async () => {
-              await navigator.clipboard.writeText(shown.markdown ?? "");
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            }}
-          >
-            {copied ? "Copied" : "Copy markdown"}
-          </button>
-        </div>
-      </div>
-
-      <pre
-        className="max-h-[36rem] overflow-auto whitespace-pre-wrap rounded p-4 text-sm leading-relaxed"
-        style={{ background: "var(--bg)" }}
-      >
-        {shown.markdown}
-      </pre>
-    </div>
+    <RevisedArticleDiff
+      original={original.markdown}
+      revised={revised.markdown}
+      fixes={fixes.filter((f) => f.applied)}
+    />
   );
 }

@@ -64,6 +64,13 @@ only when it is a mechanical substitution, its target text appears in the
 article exactly once, and the rule is marked `safe`. Anything else is written to
 `auto_fixes` with `applied: false` and a reason, so nothing is silently dropped.
 
+**The revised article is shown as a diff, not a wall of text.** A safe auto-fix
+is a small local substitution — one real run made 66 edits inside 8,268 words.
+Rendering the whole article and asking the reader to spot the difference is a
+memory test, not a review, so untouched runs are collapsed and each edit names
+the rule behind it. "Copy as HTML" returns paste-ready markup, since the pages
+these audits target are published as HTML.
+
 **Only approved domains are crawled.** The crawler's frontier is filtered
 against the dealership's `dealership_domains` allow-list on every expansion.
 
@@ -295,7 +302,7 @@ misfiring more often than not — which is the signal for retiring or retuning i
 npm test
 ```
 
-83 tests covering the logic where a bug does real damage:
+93 tests covering the logic where a bug does real damage:
 
 | File | Covers |
 |---|---|
@@ -305,6 +312,7 @@ npm test
 | `tests/security.test.ts` | The SSRF guard: loopback, RFC1918, cloud metadata, CGNAT, multicast, IPv6 unique/link-local, and IPv4-mapped IPv6 in both dotted and hex forms |
 | `tests/fixes.test.ts` | Typographic quote conversion — that markdown link targets, inline code and code fences are never touched, and that it is idempotent |
 | `tests/seed-rules.test.ts` | Every regex in the SQL seed compiles, none matches the empty string, no rule claims an auto-fix the pipeline cannot apply, every code the pipeline names exists |
+| `tests/markdown.test.ts` | The HTML export: escaping so article text cannot inject markup, dangerous schemes stripped from links, and URLs containing parentheses (`/Toyota_RAV4_(XA50)`) surviving intact |
 | `tests/regressions.test.ts` | Bugs found by running the pipeline against live pages and real dealership content (see below) |
 
 ### Verified against a live local stack
