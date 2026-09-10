@@ -295,7 +295,7 @@ misfiring more often than not — which is the signal for retiring or retuning i
 npm test
 ```
 
-77 tests covering the logic where a bug does real damage:
+83 tests covering the logic where a bug does real damage:
 
 | File | Covers |
 |---|---|
@@ -305,7 +305,7 @@ npm test
 | `tests/security.test.ts` | The SSRF guard: loopback, RFC1918, cloud metadata, CGNAT, multicast, IPv6 unique/link-local, and IPv4-mapped IPv6 in both dotted and hex forms |
 | `tests/fixes.test.ts` | Typographic quote conversion — that markdown link targets, inline code and code fences are never touched, and that it is idempotent |
 | `tests/seed-rules.test.ts` | Every regex in the SQL seed compiles, none matches the empty string, no rule claims an auto-fix the pipeline cannot apply, every code the pipeline names exists |
-| `tests/regressions.test.ts` | Bugs found by running the pipeline against live pages (see below) |
+| `tests/regressions.test.ts` | Bugs found by running the pipeline against live pages and real dealership content (see below) |
 
 ### Verified against a live local stack
 
@@ -326,11 +326,31 @@ Auth, and real websites — not mocked:
 - Graceful degradation with no `ANTHROPIC_API_KEY`: deterministic rules still
   run, the audit still completes, and the report records why AI analysis was skipped
 
-Nine bugs surfaced this way and are now pinned by `tests/regressions.test.ts` —
-among them a `<br>` that welded addresses into one token, a table separator that
-made the extractor trip its own em-dash rule, a score that saturated at 0/100,
-and a "safe" fix that restructured the text and caused the re-audit to report a
-finding as resolved that was never fixed.
+Fourteen bugs surfaced this way and are pinned by `tests/regressions.test.ts`.
+The ones worth knowing about:
+
+- A "safe" whitespace fix restructured the plain text but not the markdown, so a
+  rule stopped matching and the re-audit reported a finding as **resolved that
+  was never fixed**. Markdown is now the single source of truth.
+- Every `<header>` was stripped as chrome, so a page whose H1 sits in a hero lost
+  its title — and was then reported as having no H1, a defect invented by the
+  extractor.
+- The audited region was whichever container scored best. On a pillar page built
+  from sibling `<section>` bands that was **2,856 of 8,656 words**; two thirds of
+  the content never reached the rule engine.
+- The dealership crawl seeded only the bare domain. Sites that serve a valid
+  certificate on `www` alone failed TLS and the crawl silently found nothing.
+- Tables were missing from the markdown entirely, losing the spec figures the
+  fact checker exists to verify — and once added, flattened tables were reported
+  as 260-word paragraphs.
+- `<br>` was dropped with no separator, welding `123 Main St<br>Springfield` into
+  one token and corrupting address comparison.
+- The score saturated at 0/100, scoring sixteen cosmetic findings identically to
+  a compliance-violating article.
+
+On a real dealership pillar page the auditor now reports 9 findings, all of them
+legitimate — including four verified 404s, two of which are on the dealership's
+own site.
 
 **Still not covered:** real Anthropic API calls and Firecrawl, since both need
 paid keys. The AI steps are exercised only along their failure path. Walk the
