@@ -19,6 +19,46 @@ function optional(name: string): string | undefined {
   return process.env[name] || undefined;
 }
 
+/**
+ * Catch the wrong Supabase URL before anything tries to use it.
+ *
+ * The value people reach for first is the one in the browser address bar of
+ * the dashboard — https://supabase.com/dashboard/project/<ref>. Requests to it
+ * return the dashboard's own HTML, which the Postgres client surfaces as a
+ * parse failure carrying an entire web page, and that page lands in the UI as
+ * the error. Failing here instead turns a baffling wall of markup into one
+ * line naming the setting to change.
+ */
+function assertSupabaseUrl(raw: string, name: string): string {
+  const value = raw.trim().replace(/\/+$/, "");
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} is not a valid URL: "${raw}".`);
+  }
+
+  const host = url.hostname.toLowerCase();
+
+  if (host === "supabase.com" || host === "www.supabase.com" || host.endsWith(".supabase.com")) {
+    throw new Error(
+      `${name} points at the Supabase dashboard ("${value}"), not at your project's API. ` +
+        `Copy Project Settings → API → Project URL instead — it looks like ` +
+        `https://your-project-ref.supabase.co`,
+    );
+  }
+
+  if (url.pathname !== "" && url.pathname !== "/") {
+    throw new Error(
+      `${name} must be the project's origin with no path. Got "${value}"; ` +
+        `expected something like https://your-project-ref.supabase.co`,
+    );
+  }
+
+  return value;
+}
+
 export const env = {
   // --- Supabase ---
   /**
@@ -28,7 +68,8 @@ export const env = {
    * existing deployment keeps working, but SUPABASE_URL is the correct one.
    */
   get supabaseUrl() {
-    return optional("SUPABASE_URL") ?? required("NEXT_PUBLIC_SUPABASE_URL");
+    const name = optional("SUPABASE_URL") ? "SUPABASE_URL" : "NEXT_PUBLIC_SUPABASE_URL";
+    return assertSupabaseUrl(optional("SUPABASE_URL") ?? required(name), name);
   },
   get supabaseServiceRoleKey() {
     return required("SUPABASE_SERVICE_ROLE_KEY");

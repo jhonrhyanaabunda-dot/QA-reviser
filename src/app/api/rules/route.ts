@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 import { WORKSPACE_USER_ID } from "@/lib/workspace";
@@ -34,7 +36,7 @@ const updateSchema = z.object({
  * The accept/reject counts are the signal for whether a rule is pulling its
  * weight; a rule rejected far more often than accepted is miscalibrated.
  */
-export async function GET() {
+async function handleGET() {
 
   const supabase = db();
 
@@ -43,7 +45,7 @@ export async function GET() {
     supabase.from("qa_feedback").select("rule_id, verdict"),
   ]);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
 
   const stats = new Map<string, { accept: number; reject: number; modify: number }>();
   for (const row of feedback ?? []) {
@@ -61,13 +63,13 @@ export async function GET() {
   });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
 
   let payload: z.infer<typeof createSchema>;
   try {
     payload = createSchema.parse(await request.json());
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 
   if (payload.kind === "regex") {
@@ -123,8 +125,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error: conflict
-          ? `You already have a rule with the code ${payload.code}.`
-          : error.message,
+          ? `A rule with the code ${payload.code} already exists.`
+          : describeError(error),
       },
       { status: conflict ? 409 : 500 },
     );
@@ -139,13 +141,13 @@ export async function POST(request: Request) {
  * Built-in rules are global rows nobody owns, so toggling one off for yourself
  * clones it into a user-owned override rather than mutating the shared row.
  */
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
 
   let payload: z.infer<typeof updateSchema>;
   try {
     payload = updateSchema.parse(await request.json());
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 
   const supabase = db();
@@ -189,7 +191,7 @@ export async function PATCH(request: Request) {
       .select("*")
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
     return NextResponse.json({ rule: data, overrode: true });
   }
 
@@ -200,11 +202,11 @@ export async function PATCH(request: Request) {
     .select("*")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   return NextResponse.json({ rule: data });
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
 
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required." }, { status: 400 });
@@ -212,7 +214,12 @@ export async function DELETE(request: Request) {
   const supabase = db();
   // RLS restricts deletes to the user's own rules, so built-ins are safe.
   const { error } = await supabase.from("qa_rules").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
 
   return NextResponse.json({ deleted: id });
 }
+
+export const GET = apiHandler(handleGET);
+export const POST = apiHandler(handlePOST);
+export const PATCH = apiHandler(handlePATCH);
+export const DELETE = apiHandler(handleDELETE);

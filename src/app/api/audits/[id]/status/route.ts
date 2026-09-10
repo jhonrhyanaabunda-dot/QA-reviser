@@ -1,4 +1,6 @@
 import { after, NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { db } from "@/lib/supabase/server";
 import { triggerAdvance } from "@/pipeline/runner";
 
@@ -21,7 +23,7 @@ const STALL_MS = 90_000;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
+async function handleGET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -37,7 +39,7 @@ export async function GET(
     .eq("id", id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Audit not found." }, { status: 404 });
 
   const unfinished = data.status === "queued" || data.status === "running";
@@ -56,3 +58,5 @@ export async function GET(
     { headers: { "Cache-Control": "no-store" } },
   );
 }
+
+export const GET = apiHandler(handleGET);

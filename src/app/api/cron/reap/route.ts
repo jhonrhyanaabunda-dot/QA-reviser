@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { triggerAdvance } from "@/pipeline/runner";
@@ -29,7 +31,7 @@ function authorized(request: NextRequest): boolean {
   return header === `Bearer ${secret}`;
 }
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -61,7 +63,7 @@ export async function GET(request: NextRequest) {
     .limit(MAX_RESUMED_PER_RUN);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: describeError(error) }, { status: 500 });
   }
 
   const resumed: string[] = [];
@@ -76,3 +78,5 @@ export async function GET(request: NextRequest) {
     checkedAt: new Date().toISOString(),
   });
 }
+
+export const GET = apiHandler(handleGET);

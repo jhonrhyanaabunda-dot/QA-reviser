@@ -1,4 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
+import { apiHandler } from "@/lib/api";
 import { timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
 import { advanceJob, triggerAdvance } from "@/pipeline/runner";
@@ -30,7 +31,7 @@ function authorized(request: NextRequest): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -64,3 +65,5 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ accepted: true, jobId: id }, { status: 202 });
 }
+
+export const POST = apiHandler(handlePOST);

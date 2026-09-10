@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 import { WORKSPACE_USER_ID } from "@/lib/workspace";
@@ -18,7 +20,7 @@ const submitSchema = z.object({
 });
 
 /** GET /api/audits — the signed-in user's audits, newest first. */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
 
   const limit = Math.min(Number(request.nextUrl.searchParams.get("limit") ?? 25), 100);
   const supabase = db();
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   return NextResponse.json({ audits: data ?? [] });
 }
 
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
  * Creates the job row, returns immediately, and kicks the pipeline. The client
  * polls the status endpoint from here; this request never waits for the audit.
  */
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
 
   let payload: z.infer<typeof submitSchema>;
   try {
@@ -95,7 +97,7 @@ export async function POST(request: NextRequest) {
 
   if (error || !data) {
     return NextResponse.json(
-      { error: `Could not start the audit: ${error?.message ?? "unknown error"}` },
+      { error: `Could not start the audit: ${describeError(error)}` },
       { status: 500 },
     );
   }
@@ -105,3 +107,6 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ audit: data }, { status: 201 });
 }
+
+export const GET = apiHandler(handleGET);
+export const POST = apiHandler(handlePOST);

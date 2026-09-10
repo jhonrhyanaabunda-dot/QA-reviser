@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 import { parseUserUrl, registrableHost } from "@/lib/url";
@@ -13,7 +15,7 @@ const domainSchema = z.object({
 });
 
 /** PATCH /api/dealerships/:id — rename, or add/remove an approved domain. */
-export async function PATCH(
+async function handlePATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -24,7 +26,7 @@ export async function PATCH(
   try {
     payload = domainSchema.parse(await request.json());
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 
   const supabase = db();
@@ -34,7 +36,7 @@ export async function PATCH(
       .from("dealerships")
       .update({ name: payload.name.trim() })
       .eq("id", id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   }
 
   if (payload.addDomain) {
@@ -46,7 +48,7 @@ export async function PATCH(
     const { error } = await supabase
       .from("dealership_domains")
       .insert({ dealership_id: id, domain, is_approved: true, max_pages: 25 });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   }
 
   if (payload.removeDomainId) {
@@ -55,7 +57,7 @@ export async function PATCH(
       .delete()
       .eq("id", payload.removeDomainId)
       .eq("dealership_id", id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   }
 
   const { data } = await supabase
@@ -67,7 +69,7 @@ export async function PATCH(
   return NextResponse.json({ dealership: data });
 }
 
-export async function DELETE(
+async function handleDELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -75,6 +77,9 @@ export async function DELETE(
   const { id } = await params;
   const supabase = db();
   const { error } = await supabase.from("dealerships").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   return NextResponse.json({ deleted: id });
 }
+
+export const PATCH = apiHandler(handlePATCH);
+export const DELETE = apiHandler(handleDELETE);

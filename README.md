@@ -185,6 +185,25 @@ git push -u origin main
 
 ### 4. Verify
 
+Open **`/api/health`** on the deployment first. It reports whether each setting
+is present, whether the database answers, and whether the migrations were
+actually run — without exposing any values:
+
+```json
+{ "ok": true, "database": "reachable", "builtInRules": 34,
+  "migrations": "applied", "workspace": "present" }
+```
+
+`ok: false` names the problem. The two that catch nearly everyone:
+
+- **`SUPABASE_URL points at the Supabase dashboard`** — you copied the address
+  bar. The value you want is Project Settings → API → **Project URL**, which
+  looks like `https://your-project-ref.supabase.co` and has no path.
+- **`No built-in rules found`** — the SQL in `supabase/migrations/` was never
+  run against this project.
+
+Then:
+
 - Visit the deployment, add a dealership with its domain.
 - Submit an article URL and watch the progress steps advance.
 - Check **Settings → Cron Jobs** shows `/api/cron/reap`.
@@ -488,6 +507,7 @@ src/
 │   │   ├── audits/            submit, list, fetch report, poll status, feedback
 │   │   ├── dealerships/       CRUD + approved-domain management
 │   │   ├── rules/             rule library CRUD and tuning
+│   │   ├── health/            configuration check for a deployment
 │   │   ├── jobs/advance/      internal: run one pipeline step
 │   │   └── cron/reap/         recovery sweep for stalled jobs
 │   ├── audits/[id]/           progress + report

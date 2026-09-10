@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { db } from "@/lib/supabase/server";
 
 /** GET /api/audits/:id — the full report. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
+async function handleGET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -19,7 +21,7 @@ export async function GET(
     .eq("id", id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   if (!job) return NextResponse.json({ error: "Audit not found." }, { status: 404 });
 
   const [articles, issues, links, facts, fixes, result, pages] = await Promise.all([
@@ -45,7 +47,7 @@ export async function GET(
 }
 
 /** DELETE /api/audits/:id — remove an audit and everything under it. */
-export async function DELETE(
+async function handleDELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -54,7 +56,10 @@ export async function DELETE(
   const supabase = db();
 
   const { error } = await supabase.from("audit_jobs").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
 
   return NextResponse.json({ deleted: id });
 }
+
+export const GET = apiHandler(handleGET);
+export const DELETE = apiHandler(handleDELETE);

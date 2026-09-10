@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 import { WORKSPACE_USER_ID } from "@/lib/workspace";
@@ -16,7 +18,7 @@ const schema = z.object({
   additionalDomains: z.array(z.string().min(4).max(255)).max(10).optional(),
 });
 
-export async function GET() {
+async function handleGET() {
 
   const supabase = db();
   const { data, error } = await supabase
@@ -24,17 +26,17 @@ export async function GET() {
     .select("*, dealership_domains(id, domain, label, is_approved, max_pages)")
     .order("created_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
   return NextResponse.json({ dealerships: data ?? [] });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
 
   let payload: z.infer<typeof schema>;
   try {
     payload = schema.parse(await request.json());
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 
   const primary = toDomain(payload.primaryDomain);
@@ -59,7 +61,7 @@ export async function POST(request: Request) {
 
   if (error || !dealership) {
     return NextResponse.json(
-      { error: error?.message ?? "Could not create dealership." },
+      { error: describeError(error) },
       { status: 500 },
     );
   }
@@ -82,7 +84,7 @@ export async function POST(request: Request) {
 
   if (domainError) {
     return NextResponse.json(
-      { error: `Dealership created but domains failed: ${domainError.message}` },
+      { error: `Dealership created but domains failed: ${describeError(domainError)}` },
       { status: 500 },
     );
   }
@@ -96,3 +98,6 @@ function toDomain(value: string): string | null {
   if (!url) return null;
   return registrableHost(url.toString());
 }
+
+export const GET = apiHandler(handleGET);
+export const POST = apiHandler(handlePOST);

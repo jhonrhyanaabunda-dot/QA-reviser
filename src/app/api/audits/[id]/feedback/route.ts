@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 import { WORKSPACE_USER_ID } from "@/lib/workspace";
@@ -19,7 +21,7 @@ const schema = z.object({
   note: z.string().max(2000).optional(),
 });
 
-export async function POST(
+async function handlePOST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -30,7 +32,7 @@ export async function POST(
   try {
     payload = schema.parse(await request.json());
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    return NextResponse.json({ error: describeError(error) }, { status: 400 });
   }
 
   const supabase = db();
@@ -58,7 +60,7 @@ export async function POST(
     .select("*")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: describeError(error) }, { status: 500 });
 
   // Reject means the finding was wrong — reflect that on the issue itself.
   if (payload.verdict === "reject") {
@@ -67,3 +69,5 @@ export async function POST(
 
   return NextResponse.json({ feedback: data }, { status: 201 });
 }
+
+export const POST = apiHandler(handlePOST);
