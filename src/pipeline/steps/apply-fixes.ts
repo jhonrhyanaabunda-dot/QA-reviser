@@ -1,7 +1,7 @@
 import "server-only";
 
 import { checkLink } from "@/lib/http";
-import { countWords } from "@/lib/extract";
+import { countWords, markdownToPlainText } from "@/lib/extract";
 import type { StepContext, StepOutcome } from "../runner";
 import { loadRules } from "../rules";
 import { loadExtractedArticle } from "./shared";
@@ -63,8 +63,15 @@ export async function applyFixesStep({ db, job, warn }: StepContext): Promise<St
     });
   }
 
-  // --- 2. Deterministic pattern replacements ------------------------------
-  let text = article.text;
+  /**
+   * Fixes are applied to the markdown only.
+   *
+   * The plain text is a *rendering* of the article, not a second copy of it.
+   * Editing both independently let them drift: a trailing-whitespace fix
+   * changed paragraph boundaries in the text but not the markdown, a rule
+   * stopped matching as a result, and the re-audit reported it as resolved.
+   * One source of truth, one derivation.
+   */
   let markdown = article.markdown;
 
   const applied: FixCandidate[] = [];
@@ -83,13 +90,13 @@ export async function applyFixesStep({ db, job, warn }: StepContext): Promise<St
 
     const before = markdown;
     markdown = markdown.replace(regex, rule.replacement);
-    text = text.replace(regex, rule.replacement);
 
     if (before !== markdown) {
+      const hits = countOccurrences(before, regex);
       applied.push({
         issueId: issues.find((i) => i.rule_code === code)?.id ?? null,
         ruleCode: code,
-        before: `${countOccurrences(before, regex)} occurrence(s)`,
+        before: `${hits} occurrence${hits === 1 ? "" : "s"}`,
         after: rule.replacement || "(removed)",
         reason: rule.title,
       });
@@ -101,7 +108,6 @@ export async function applyFixesStep({ db, job, warn }: StepContext): Promise<St
     const curled = curlQuotes(markdown);
     if (curled !== markdown) {
       markdown = curled;
-      text = curlQuotes(text);
       applied.push({
         issueId: issues.find((i) => i.rule_code === "STYLE_STRAIGHT_QUOTES")?.id ?? null,
         ruleCode: "STYLE_STRAIGHT_QUOTES",
@@ -141,7 +147,6 @@ export async function applyFixesStep({ db, job, warn }: StepContext): Promise<St
 
     if (markdown.includes(url)) {
       markdown = markdown.split(url).join(secure);
-      text = text.split(url).join(secure);
       applied.push(candidate);
     }
   }
@@ -172,7 +177,6 @@ export async function applyFixesStep({ db, job, warn }: StepContext): Promise<St
     // or "$1" would otherwise be interpreted as a substitution pattern and
     // corrupt the text. The uniqueness check above makes this exact.
     markdown = markdown.split(candidate.before).join(candidate.after);
-    text = text.split(candidate.before).join(candidate.after);
     applied.push(candidate);
   }
 
@@ -233,8 +237,9 @@ export async function applyFixesStep({ db, job, warn }: StepContext): Promise<St
       );
   }
 
-  const revisedText = shouldPersist ? text : article.text;
   const revisedMarkdown = shouldPersist ? markdown : article.markdown;
+  // Derived, never edited in parallel — see the note above.
+  const revisedText = shouldPersist ? markdownToPlainText(revisedMarkdown) : article.text;
 
   const { error: articleError } = await db.from("articles").upsert(
     {

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { structured } from "@/lib/ai";
 import type { DetectedIssue } from "@/lib/types";
 import type { StepContext, StepOutcome } from "../runner";
-import { loadRules } from "../rules";
+import { loadRules, toIssueRow } from "../rules";
 import { articleContext, dealershipContext, loadExtractedArticle } from "./shared";
 
 /**
@@ -181,7 +181,7 @@ export async function verifyFactsStep({
 
   if (issues.length > 0) {
     const { error } = await db.from("issues").insert(
-      issues.map((issue) => ({ ...issue, job_id: job.id, phase: "initial" as const })),
+      issues.map((issue) => toIssueRow(issue, job.id, "initial")),
     );
     if (error) warn(`Could not store fact-check issues: ${error.message}`);
   }

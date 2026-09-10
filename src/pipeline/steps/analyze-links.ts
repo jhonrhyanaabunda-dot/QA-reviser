@@ -4,7 +4,7 @@ import { checkLink } from "@/lib/http";
 import { hostMatchesDomain, matchesAnyDomain, registrableHost } from "@/lib/url";
 import type { DetectedIssue, LinkRef } from "@/lib/types";
 import type { StepContext, StepOutcome } from "../runner";
-import { loadRules } from "../rules";
+import { loadRules, toIssueRow } from "../rules";
 
 /**
  * Step 6: analyze every link in the article.
@@ -112,7 +112,7 @@ export async function analyzeLinksStep({
 
   if (issues.length > 0) {
     const { error } = await db.from("issues").insert(
-      issues.map((issue) => ({ ...issue, job_id: job.id, phase: "initial" as const })),
+      issues.map((issue) => toIssueRow(issue, job.id, "initial")),
     );
     if (error) warn(`Could not store link issues: ${error.message}`);
   }

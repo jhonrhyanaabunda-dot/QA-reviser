@@ -211,15 +211,31 @@ supabase db push
 
 ## Local development
 
+The whole system runs locally against a real Postgres — no hosted project
+needed. Requires Docker.
+
 ```bash
 npm install
-cp .env.example .env.local     # then fill in the values
-npm run dev                    # http://localhost:3000
+npx supabase start          # Postgres + Auth on 127.0.0.1:54321, applies migrations
+cp .env.example .env.local  # then fill in, using the keys `supabase start` printed
+npm run dev                 # http://localhost:3000
 ```
 
-`APP_URL` defaults to `http://localhost:3000`, so the self-chaining pipeline
-works locally without extra configuration. Point `NEXT_PUBLIC_SUPABASE_URL` at
-either a hosted Supabase project or a local `supabase start` instance.
+`supabase start` prints `API_URL`, `ANON_KEY` and `SERVICE_ROLE_KEY`; those are
+the three Supabase values for `.env.local`. Generate `INTERNAL_JOB_SECRET` and
+`CRON_SECRET` with `openssl rand -hex 32`. `APP_URL` defaults to
+`http://localhost:3000`, so the self-chaining pipeline works without extra
+configuration.
+
+`ANTHROPIC_API_KEY` may be left blank locally. The AI steps then fail softly:
+the deterministic rules still run, the audit still completes, and the report
+records a warning saying the AI analysis was skipped.
+
+Reset the database (re-applies all migrations and the rule seed):
+
+```bash
+npx supabase db reset
+```
 
 | Command | What it does |
 |---|---|
@@ -229,7 +245,21 @@ either a hosted Supabase project or a local `supabase start` instance.
 | `npm test` | Test suite |
 | `npm run lint` | ESLint |
 
----
+### Exercising the pipeline locally
+
+Two harnesses under `scripts/` drive the running app end to end. They are dev
+tools, not part of the deployment.
+
+```bash
+set -a && . ./.env.local && set +a
+
+# Create a user, dealership and job; run a full audit; print what was stored.
+npx tsx scripts/e2e-local.ts
+npx tsx scripts/e2e-local.ts "https://some-dealer.com/blog/post" "some-dealer.com"
+
+# Sign in, fetch every authenticated page, and check RLS isolation between users.
+npx tsx scripts/ui-check.mts
+```
 
 ## The QA rule library
 
@@ -265,23 +295,46 @@ misfiring more often than not — which is the signal for retiring or retuning i
 npm test
 ```
 
-63 tests covering the logic where a bug does real damage:
+77 tests covering the logic where a bug does real damage:
 
 | File | Covers |
 |---|---|
-| `tests/url.test.ts` | URL normalization, domain matching (including lookalike domains like `dealer.com.evil.net`), crawl prioritization |
-| `tests/extract.test.ts` | Article extraction, markdown conversion, and the JS-rendering heuristic — including that a server-rendered Next.js page is **not** sent to Firecrawl |
-| `tests/rules.test.ts` | Regex and structural rules against real automotive copy, count thresholds, invalid-pattern tolerance, score monotonicity and clamping |
+| `tests/url.test.ts` | URL normalization, domain matching (including lookalikes like `dealer.com.evil.net`), crawl prioritization |
+| `tests/extract.test.ts` | Article extraction, markdown conversion, tables, and the JS-rendering heuristic — including that a server-rendered Next.js page is **not** sent to Firecrawl |
+| `tests/rules.test.ts` | Regex and structural rules against real automotive copy, count thresholds, invalid-pattern tolerance, score monotonicity |
 | `tests/security.test.ts` | The SSRF guard: loopback, RFC1918, cloud metadata, CGNAT, multicast, IPv6 unique/link-local, and IPv4-mapped IPv6 in both dotted and hex forms |
-| `tests/fixes.test.ts` | Typographic quote conversion — in particular that markdown link targets, inline code and code fences are never touched, and that the conversion is idempotent |
-| `tests/seed-rules.test.ts` | Every regex pattern in the SQL seed compiles, none matches the empty string, no rule claims an auto-fix the pipeline cannot apply, and every rule the pipeline names by code exists |
+| `tests/fixes.test.ts` | Typographic quote conversion — that markdown link targets, inline code and code fences are never touched, and that it is idempotent |
+| `tests/seed-rules.test.ts` | Every regex in the SQL seed compiles, none matches the empty string, no rule claims an auto-fix the pipeline cannot apply, every code the pipeline names exists |
+| `tests/regressions.test.ts` | Bugs found by running the pipeline against live pages (see below) |
 
-**What is not covered:** anything requiring live credentials — Supabase reads and
-writes, real Anthropic calls, Firecrawl, and a full end-to-end audit. Those need
-your keys; the checklist under [Operational notes](#operational-notes) is what to
-walk through after the first deploy.
+### Verified against a live local stack
 
----
+The following were exercised end to end against real Postgres, real Supabase
+Auth, and real websites — not mocked:
+
+- All three migrations applying to a clean database, and the 34-rule seed
+- Sign-up, the `profiles` mirror trigger, and session-cookie auth on every page
+- **RLS isolation** — a second user requesting another user's audit gets a 404
+- Auth guards: pages redirect to `/login`, API routes return JSON 401, the
+  internal pipeline and cron routes reject a wrong secret
+- A complete nine-step audit on a real article, finishing in ~8s
+- A 20,000-word, 795-link article: chunked link checking, the 150-link cap,
+  multi-page dealership crawling with frontier expansion
+- Failure paths: a 404 URL, a JS-only page, and an SSRF attempt at
+  `169.254.169.254` and at the app's own loopback API
+- **Crash recovery** — a job with an expired lease is resumed by the cron reaper
+- Graceful degradation with no `ANTHROPIC_API_KEY`: deterministic rules still
+  run, the audit still completes, and the report records why AI analysis was skipped
+
+Nine bugs surfaced this way and are now pinned by `tests/regressions.test.ts` —
+among them a `<br>` that welded addresses into one token, a table separator that
+made the extractor trip its own em-dash rule, a score that saturated at 0/100,
+and a "safe" fix that restructured the text and caused the re-audit to report a
+finding as resolved that was never fixed.
+
+**Still not covered:** real Anthropic API calls and Firecrawl, since both need
+paid keys. The AI steps are exercised only along their failure path. Walk the
+checklist under [Operational notes](#operational-notes) once your keys are in.
 
 ## Operational notes
 
@@ -298,19 +351,20 @@ walk through after the first deploy.
 
 ### After your first deploy, verify
 
-- [ ] Sign-up and sign-in
-- [ ] Adding a dealership and its approved domains
-- [ ] URL submission and article extraction
-- [ ] Dealership page crawling (check the crawled-page count in the report)
-- [ ] Internal and external link detection, and a deliberately broken link
-- [ ] QA rule processing, including one of your own rules
-- [ ] AI writing-pattern detection on a known-AI-written article
-- [ ] Fact verification against a dealership page you can check by hand
-- [ ] Safe auto-fixes, and that risky ones land under "Needs a human"
-- [ ] The final re-audit score
-- [ ] Report generation and persistence across a page reload
-- [ ] Error handling: submit a 404 URL and confirm the failure message is useful
-- [ ] Timeout handling: confirm a stalled job is resumed by the reaper
+Everything except the AI steps has been exercised against a live local stack
+(see [Verified against a live local stack](#verified-against-a-live-local-stack)).
+What genuinely needs checking on your own deployment:
+
+- [ ] **AI writing-pattern detection** on a known-AI-written article — the only
+      part never run against the real Anthropic API
+- [ ] **Fact verification** against a dealership page you can check by hand,
+      and that an unsupported claim comes back `unverified` rather than `supported`
+- [ ] **Firecrawl fallback**, if you set the key: submit a JS-rendered page
+- [ ] Environment variables are set for Production *and* Preview
+- [ ] The cron job appears under Settings → Cron Jobs, and the schedule matches
+      your plan (see the note above)
+- [ ] An audit finishes inside your `maxDuration` on a real dealership article
+- [ ] Report persistence across a page reload and a new browser session
 
 ### Cost
 
@@ -352,5 +406,6 @@ src/
 │   └── steps/                 the nine pipeline steps
 ├── middleware.ts              session refresh + route protection
 supabase/migrations/           schema, RLS, seed rules
+scripts/                       local end-to-end harnesses (not deployed)
 tests/                         test suite
 ```

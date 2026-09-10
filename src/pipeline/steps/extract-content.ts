@@ -5,6 +5,8 @@ import { normalizeUrl } from "@/lib/url";
 import type { LinkRef } from "@/lib/types";
 import type { StepContext, StepOutcome } from "../runner";
 
+const MAX_LINKS_CHECKED = 150;
+
 /**
  * Step 4: turn the stored HTML into structured content.
  *
@@ -69,9 +71,21 @@ export async function extractContentStep({ db, job, warn }: StepContext): Promis
     linkQueue.push({ url: normalized, anchor: link.anchor });
   }
 
+  // A dealership article has a handful of links. A page with hundreds is a
+  // reference or index page, and checking every one would stretch the audit
+  // across dozens of invocations for no editorial benefit. Cap it and say so
+  // rather than letting one article monopolize the pipeline.
+  const capped = linkQueue.slice(0, MAX_LINKS_CHECKED);
+  if (linkQueue.length > MAX_LINKS_CHECKED) {
+    warn(
+      `The article has ${linkQueue.length} links; only the first ` +
+        `${MAX_LINKS_CHECKED} were checked.`,
+    );
+  }
+
   return {
     kind: "advance",
-    state: { linkQueue, linkCount: linkQueue.length },
+    state: { linkQueue: capped, linkCount: capped.length },
     message: "Checking dealership pages...",
   };
 }

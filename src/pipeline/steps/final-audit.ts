@@ -3,11 +3,11 @@ import "server-only";
 import type { DetectedIssue } from "@/lib/types";
 import type { StepContext, StepOutcome } from "../runner";
 import {
-  computeScore,
   deterministicCodes,
   loadRules,
   runRegexRules,
   runStructuralRules,
+  toIssueRow,
 } from "../rules";
 import { loadExtractedArticle } from "./shared";
 
@@ -37,7 +37,7 @@ export async function finalAuditStep({ db, job, warn }: StepContext): Promise<St
 
   if (findings.length > 0) {
     const { error } = await db.from("issues").insert(
-      findings.map((issue) => ({ ...issue, job_id: job.id, phase: "final" as const })),
+      findings.map((issue) => toIssueRow(issue, job.id, "final")),
     );
     if (error) warn(`Could not store final-audit issues: ${error.message}`);
   }
@@ -55,7 +55,11 @@ export async function finalAuditStep({ db, job, warn }: StepContext): Promise<St
 
   const { data: initial } = await db
     .from("issues")
-    .select("id, rule_code, evidence, location, status")
+    // `title` matters: fingerprint() falls back to it for findings that carry
+    // no quotable evidence (thin content, missing meta description). Leaving
+    // it out made every one of those compare as absent and get marked
+    // resolved — while the same finding was being re-reported as open.
+    .select("id, rule_code, title, evidence, location, status")
     .eq("job_id", job.id)
     .eq("phase", "initial");
 
@@ -71,11 +75,9 @@ export async function finalAuditStep({ db, job, warn }: StepContext): Promise<St
     await db.from("issues").update({ status: "resolved" }).in("id", resolved);
   }
 
-  const finalScore = computeScore(findings);
-
   return {
     kind: "advance",
-    message: `Final verification... (score ${finalScore})`,
+    message: `Final verification... (${findings.length} remaining)`,
   };
 }
 

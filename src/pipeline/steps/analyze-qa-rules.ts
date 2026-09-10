@@ -4,7 +4,14 @@ import { z } from "zod";
 import { structured } from "@/lib/ai";
 import type { DetectedIssue, ExtractedArticle, QaRule, Severity } from "@/lib/types";
 import type { StepContext, StepOutcome } from "../runner";
-import { aiRules, contextAround, loadRules, runRegexRules, runStructuralRules } from "../rules";
+import {
+  aiRules,
+  contextAround,
+  loadRules,
+  runRegexRules,
+  runStructuralRules,
+  toIssueRow,
+} from "../rules";
 import { articleContext, loadExtractedArticle } from "./shared";
 
 /**
@@ -154,7 +161,7 @@ export async function analyzeQaRulesStep({
 
   if (issues.length > 0) {
     const { error } = await db.from("issues").insert(
-      issues.map((issue) => ({ ...issue, job_id: job.id, phase: "initial" as const })),
+      issues.map((issue) => toIssueRow(issue, job.id, "initial")),
     );
     if (error) return { kind: "fail", error: `Could not store issues: ${error.message}` };
   }

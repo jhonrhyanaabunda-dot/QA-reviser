@@ -312,10 +312,20 @@ export function contextAround(text: string, offset: number, length: number): str
 }
 
 /**
- * 0–100 quality score. Starts at 100 and subtracts severity weight with
- * diminishing returns, so one noisy rule matching twenty times cannot zero out
- * an otherwise sound article.
+ * 0–100 quality score.
+ *
+ * Two properties the obvious "subtract a weight per issue" version does not
+ * have, and that make it useless in practice:
+ *
+ *  - **It never saturates.** Linear subtraction bottomed out at 0 on an
+ *    article with sixteen mostly-cosmetic findings, scoring it identically to
+ *    one riddled with compliance violations. Halving toward zero keeps every
+ *    article distinguishable from every worse one.
+ *  - **Severity outranks count.** Issue count enters logarithmically, so ten
+ *    missing alt attributes never outweigh a single "guaranteed approval".
  */
+const HALF_LIFE = 45;
+
 export function computeScore(issues: { severity: Severity }[]): number {
   const counts = new Map<Severity, number>();
   for (const issue of issues) {
@@ -324,13 +334,11 @@ export function computeScore(issues: { severity: Severity }[]): number {
 
   let penalty = 0;
   for (const [severity, count] of counts) {
-    const weight = SEVERITY_WEIGHT[severity];
-    for (let i = 0; i < count; i += 1) {
-      penalty += weight / (1 + i * 0.45);
-    }
+    // 1 occurrence counts as 1, 2 as ~1.7, 10 as ~3.3, 50 as ~4.9.
+    penalty += SEVERITY_WEIGHT[severity] * (1 + Math.log(count));
   }
 
-  return Math.max(0, Math.min(100, Math.round(100 - penalty)));
+  return Math.max(0, Math.min(100, Math.round(100 * 0.5 ** (penalty / HALF_LIFE))));
 }
 
 /** Codes evaluated deterministically — the only ones the final re-audit re-runs. */
@@ -338,4 +346,35 @@ export function deterministicCodes(rules: QaRule[]): Set<string> {
   return new Set(
     rules.filter((r) => r.kind === "regex" || r.kind === "structural").map((r) => r.code),
   );
+}
+
+/**
+ * Turn a finding into an `issues` row.
+ *
+ * `location` and `auto_fixable` are NOT NULL with defaults, but a batch insert
+ * through PostgREST pads every row out to the same key set — so one finding
+ * that omits `location` sends an explicit null for all of them and the whole
+ * insert is rejected. Filling the defaults here is what keeps a single
+ * default-shaped finding from failing the entire step.
+ */
+export function toIssueRow(
+  issue: DetectedIssue,
+  jobId: string,
+  phase: "initial" | "final",
+) {
+  return {
+    job_id: jobId,
+    phase,
+    rule_id: issue.rule_id ?? null,
+    rule_code: issue.rule_code,
+    category: issue.category,
+    severity: issue.severity,
+    title: issue.title,
+    detail: issue.detail ?? null,
+    evidence: issue.evidence ?? null,
+    suggestion: issue.suggestion ?? null,
+    location: issue.location ?? {},
+    auto_fixable: issue.auto_fixable ?? false,
+    status: "open",
+  };
 }

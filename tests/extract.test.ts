@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countWords, extractArticle, needsJsRendering } from "../src/lib/extract";
+import {
+  countWords,
+  extractArticle,
+  markdownToPlainText,
+  needsJsRendering,
+} from "../src/lib/extract";
 
 const ARTICLE_HTML = `<!doctype html>
 <html><head>
@@ -102,4 +107,54 @@ test("needsJsRendering is false for a short but genuinely static page", () => {
   const short = `<html><body><article><h1>Notice</h1><p>${prose}</p></article></body></html>`;
   const a = extractArticle(short, "https://x.com/a");
   assert.equal(needsJsRendering(short, a), false);
+});
+
+// --- tables ----------------------------------------------------------------
+// Dealership spec tables carry exactly the figures the fact checker verifies,
+// so losing them to the markdown conversion loses the audit's best evidence.
+
+const TABLE_HTML = `<html><head><title>Specs</title></head><body><article>
+  <h1>2025 Specs</h1>
+  <p>${"Some introductory prose about the vehicle lineup. ".repeat(6)}</p>
+  <table>
+    <tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>Combined MPG</td><td>30</td></tr>
+    <tr><td>Towing<br>capacity</td><td>3,500 lbs</td></tr>
+  </table>
+</article></body></html>`;
+
+test("tables survive the markdown conversion", () => {
+  const a = extractArticle(TABLE_HTML, "https://x.com/a");
+  assert.match(a.markdown, /\| Metric \| Value \|/);
+  assert.match(a.markdown, /\| Combined MPG \| 30 \|/);
+});
+
+test("a multi-line table cell stays on one row", () => {
+  const a = extractArticle(TABLE_HTML, "https://x.com/a");
+  // A <br> inside a cell must not split the row, or the table stops parsing.
+  assert.match(a.markdown, /\| Towing capacity \| 3,500 lbs \|/);
+});
+
+test("table figures reach the plain text the rules read", () => {
+  const a = extractArticle(TABLE_HTML, "https://x.com/a");
+  // Label/value rows read as prose. Deliberately not an em dash: that would
+  // make the extractor's own output trip AI_EM_DASH_SPAM.
+  assert.match(a.text, /Combined MPG: 30/);
+  assert.match(a.text, /Towing capacity: 3,500 lbs/);
+  assert.ok(!a.text.includes("—"), "the extractor must not introduce em dashes");
+  assert.ok(!a.text.includes("|"), "pipes must not leak into the plain text");
+  assert.ok(!/---/.test(a.text), "the separator row must not leak into the plain text");
+});
+
+test("plain text is exactly the markdown rendering", () => {
+  // The audit must measure the deliverable. If these drift, a fix can change
+  // one and not the other and the re-audit will report a phantom resolution.
+  const a = extractArticle(TABLE_HTML, "https://x.com/a");
+  assert.equal(a.text, markdownToPlainText(a.markdown));
+});
+
+test("markdownToPlainText is idempotent", () => {
+  const a = extractArticle(ARTICLE_HTML, "https://riversidetoyota.com/blog/rav4");
+  const once = markdownToPlainText(a.markdown);
+  assert.equal(markdownToPlainText(once), once);
 });

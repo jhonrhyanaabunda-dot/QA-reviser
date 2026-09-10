@@ -27,14 +27,28 @@ export async function fetchArticleStep({ db, job }: StepContext): Promise<StepOu
     if (error instanceof FetchError && error.kind === "blocked") {
       return { kind: "fail", error: error.message };
     }
-    // A direct fetch that fails outright is exactly the case Firecrawl exists
-    // for — bot walls, Cloudflare, hard JS gates.
+
+    // A page that does not exist will not exist for a headless browser either.
+    // Retrying it through Firecrawl wastes a call, and recommending the key
+    // sends the user to fix the wrong problem.
+    const status = error instanceof FetchError ? error.statusCode : undefined;
+    if (status === 404 || status === 410) {
+      return {
+        kind: "fail",
+        error:
+          `The article URL returned HTTP ${status}. Check the address — this page ` +
+          `does not exist at that location.`,
+      };
+    }
+
+    // The rest — 403, 429, 5xx, connection resets — are the bot walls and hard
+    // JS gates Firecrawl exists for.
     if (!firecrawlEnabled()) {
       return {
         kind: "fail",
         error:
-          `${(error as Error).message}. Set FIRECRAWL_API_KEY to let the auditor ` +
-          `read pages that block plain HTTP fetches.`,
+          `${(error as Error).message}. This site refused a direct request; set ` +
+          `FIRECRAWL_API_KEY to audit pages that block plain HTTP fetches.`,
       };
     }
     const page = await scrapeWithFirecrawl(job.source_url).catch((e: unknown) => {

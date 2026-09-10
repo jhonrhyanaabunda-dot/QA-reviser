@@ -3,7 +3,7 @@ import "server-only";
 import { prose } from "@/lib/ai";
 import { SEVERITY_ORDER, type Severity } from "@/lib/types";
 import type { StepContext, StepOutcome } from "../runner";
-import { computeScore } from "../rules";
+import { computeScore, deterministicCodes, loadRules } from "../rules";
 import { loadExtractedArticle } from "./shared";
 
 /**
@@ -39,12 +39,34 @@ export async function saveReportStep({ db, job, state, warn }: StepContext): Pro
   const fixRows = fixes ?? [];
 
   const score = computeScore(initialIssues);
-  const finalScore = computeScore(finalIssues);
+
+  /**
+   * The "after" score has to be comparable to the "before" score or the
+   * comparison is worse than useless — it reads as an improvement the fixes
+   * did not make.
+   *
+   * The final re-audit only re-runs deterministic rules, so scoring it alone
+   * silently drops every link and AI finding and the number always goes up.
+   * The honest "after" is: what the re-audit found, plus every finding it
+   * could not re-check that nobody has resolved or dismissed.
+   */
+  const rules = await loadRules(db, job.user_id, job.dealership_id);
+  const rechecked = deterministicCodes(rules);
+
+  const carriedOver = initialIssues.filter(
+    (issue) =>
+      !(issue.rule_code && rechecked.has(issue.rule_code)) &&
+      issue.status !== "resolved" &&
+      issue.status !== "dismissed",
+  );
+
+  const finalScore = computeScore([...finalIssues, ...carriedOver]);
 
   const totals = {
     issues: initialIssues.length,
     issuesResolved: initialIssues.filter((i) => i.status === "resolved").length,
-    issuesRemaining: finalIssues.length,
+    issuesRemaining: finalIssues.length + carriedOver.length,
+    issuesRecheckable: finalIssues.length,
     bySeverity: severityCounts,
     byCategory: categoryCounts,
     links: {

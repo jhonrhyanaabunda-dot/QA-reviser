@@ -45,6 +45,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
 
   // Work on a clone so metadata above is read from the untouched document.
   $(STRIP).remove();
+  normalizeLineBreaks($);
 
   const container = pickContainer($);
   const scope = container ?? $("body");
@@ -66,8 +67,18 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
   });
 
   const links = collectLinks($, scope, url);
-  const text = toText($, scope);
   const markdown = toMarkdown($, scope, url);
+
+  /**
+   * The plain text is derived from the markdown, not extracted separately.
+   *
+   * The markdown is the deliverable a user copies out, so evaluating rules
+   * against a rendering of it means the audit measures what actually gets
+   * published. It also makes the original and the revised article comparable:
+   * both reach the rule engine through the same function, so a fix cannot
+   * change the text's structure without changing the markdown's too.
+   */
+  const text = markdownToPlainText(markdown) || toText($, scope);
 
   return {
     url,
@@ -83,6 +94,19 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     links,
     renderMode: "fetch",
   };
+}
+
+/**
+ * Give every <br> a space.
+ *
+ * Cheerio's .text() concatenates around a <br> with nothing between, so
+ * "Towing<br>capacity" reads as "Towingcapacity" and "123 Main St<br>Springfield"
+ * becomes one run-together token. Dealership pages use <br> constantly for
+ * addresses and spec lists — exactly the content the fact checker compares —
+ * so this has to happen before any text is read.
+ */
+function normalizeLineBreaks($: cheerio.CheerioAPI): void {
+  $("br").replaceWith(" ");
 }
 
 function attr($: cheerio.CheerioAPI, selector: string, name: string): string | null {
@@ -195,10 +219,19 @@ function toMarkdown(
   const out: string[] = [];
 
   scope
-    .find("h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre")
+    .find("h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, table")
     .each((_, el) => {
       const node = $(el);
       const tag = el.tagName.toLowerCase();
+
+      if (tag === "table") {
+        // Nested tables are almost always layout, not data — the outer one
+        // already carries their text.
+        if (node.parents("table").length > 0) return;
+        const markdown = tableToMarkdown($, node, base);
+        if (markdown) out.push(markdown);
+        return;
+      }
 
       if (/^h[1-6]$/.test(tag)) {
         const value = node.text().trim().replace(/\s+/g, " ");
@@ -228,13 +261,41 @@ function toMarkdown(
         return;
       }
 
-      // Skip paragraphs nested inside a list item we already emitted.
+      // Skip content nested inside a list item or table cell we already emitted.
       if (node.parents("li").length > 0) return;
+      if (node.parents("table").length > 0) return;
       const value = inline($, node, base);
       if (value) out.push(value);
     });
 
   return out.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function tableToMarkdown(
+  $: cheerio.CheerioAPI,
+  table: cheerio.Cheerio<AnyNode>,
+  base: string,
+): string {
+  const rows: string[][] = [];
+
+  table.find("tr").each((_, tr) => {
+    const cells: string[] = [];
+    $(tr)
+      .children("th, td")
+      .each((__, cell) => {
+        cells.push(inline($, $(cell) as cheerio.Cheerio<AnyNode>, base).replace(/\|/g, "\\|"));
+      });
+    if (cells.some((c) => c.length > 0)) rows.push(cells);
+  });
+
+  if (rows.length === 0) return "";
+
+  const width = Math.max(...rows.map((r) => r.length));
+  const pad = (row: string[]) =>
+    `| ${[...row, ...Array(width - row.length).fill("")].join(" | ")} |`;
+
+  const [header, ...body] = rows;
+  return [pad(header), `| ${Array(width).fill("---").join(" | ")} |`, ...body.map(pad)].join("\n");
 }
 
 function inline(
@@ -267,11 +328,18 @@ function inline(
     $(el).replaceWith(value ? "`" + value + "`" : "");
   });
 
-  return clone.text().trim().replace(/[ \t]+/g, " ");
+  // Collapse *all* whitespace, newlines included. HTML renders a newline
+  // inside a paragraph or table cell as a space, and leaving them in breaks
+  // markdown constructs that are line-oriented — a table row with a multi-line
+  // cell stops being a single row.
+  return clone.text().trim().replace(/\s+/g, " ");
 }
 
 export function countWords(value: string): number {
-  const matches = value.trim().match(/\b[\p{L}\p{N}'’-]+\b/gu);
+  // The prime (′) belongs to the word class alongside the apostrophes: without
+  // it, converting 5'8" to 5′8” splits one token into two and the reported
+  // word count drifts after a fix that changed no words at all.
+  const matches = value.trim().match(/\b[\p{L}\p{N}'’′-]+\b/gu);
   return matches ? matches.length : 0;
 }
 
@@ -305,8 +373,12 @@ export function needsJsRendering(html: string, extracted: ExtractedArticle): boo
   // Lots of JavaScript, almost no text: the content is behind the script.
   if (scriptBytes > 2000 && bodyText.length < 500) return true;
 
-  // Practically nothing was served at all.
-  return bodyText.length < 200;
+  // Practically nothing was served, and there is script that could explain it.
+  // Without the script check this also fired on pages that are simply very
+  // short — reporting a small static page as "requires JavaScript", which
+  // sends the user off to buy a rendering service they do not need. A genuinely
+  // thin page should fail extraction with an accurate message instead.
+  return scriptBytes > 500 && bodyText.length < 200;
 }
 
 /** Extract a lightweight summary of a crawled dealership page for AI context. */
@@ -318,10 +390,61 @@ export function extractPageFacts(html: string, url: string): {
   const $ = cheerio.load(html);
   const title = pickTitle($);
   $(STRIP).remove();
+  normalizeLineBreaks($);
   const body = $("body");
   return {
     title,
     text: toText($, body as cheerio.Cheerio<AnyNode>).slice(0, 12_000),
     links: collectLinks($, body as cheerio.Cheerio<AnyNode>, url),
   };
+}
+
+/**
+ * Render markdown back to the plain-text form the rule engine reads.
+ *
+ * The revised article has one source of truth: its markdown. Deriving the text
+ * from it — rather than applying the same edits to both renderings and hoping
+ * they stay in step — is what stops a whitespace fix from silently changing
+ * paragraph structure in one and not the other. That drift previously made a
+ * rule stop matching and get reported as resolved when nothing had been fixed.
+ */
+export function markdownToPlainText(markdown: string): string {
+  const blocks = markdown.split(/\n{2,}/);
+
+  const rendered = blocks.map((block) =>
+    block
+      .replace(/^```[\s\S]*?```$/gm, (code) => code.replace(/^```\w*\n?|```$/g, ""))
+      .split("\n")
+      // Drop a table's separator row; it carries no content.
+      .filter((line) => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line))
+      .map((line) =>
+        line
+          // Flatten a table row into readable text. The separator matters: an
+          // em dash here would make the extractor's own output trip the
+          // em-dash-overuse rule, reporting a defect the article never had.
+          // A colon for label/value pairs and a comma otherwise reads as prose
+          // and collides with nothing in the rule library.
+          .replace(/^\s*\|(.*)\|\s*$/, (_m, inner: string) => {
+            const cells = inner
+              .split(/(?<!\\)\|/)
+              .map((c) => c.replace(/\\\|/g, "|").trim())
+              .filter(Boolean);
+            return cells.length === 2 ? `${cells[0]}: ${cells[1]}` : cells.join(", ");
+          })
+          .replace(/^\s{0,3}#{1,6}\s+/, "")
+          .replace(/^\s{0,3}>\s?/, "")
+          .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/, "")
+          .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+          .replace(/\*\*([^*]+)\*\*/g, "$1")
+          .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1")
+          .replace(/`([^`]+)`/g, "$1")
+          .replace(/[ \t]+/g, " ")
+          .trim(),
+      )
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  return rendered.filter(Boolean).join("\n\n");
 }
