@@ -5,6 +5,7 @@ import {
   extractArticle,
   markdownToPlainText,
   needsJsRendering,
+  proseParagraphs,
 } from "../src/lib/extract";
 import { curlQuotes } from "../src/pipeline/steps/apply-fixes";
 import { computeScore, toIssueRow } from "../src/pipeline/rules";
@@ -184,4 +185,35 @@ test("the broken-link totals only count genuinely dead links", () => {
     (r) => !r.ok && !(r.status_code !== null && unverifiable.has(r.status_code)),
   );
   assert.equal(dead.length, 2, "404 and unreachable count; 403 does not");
+});
+
+test("a spec table is not reported as an overlong paragraph", () => {
+  // Once flattened to plain text a comparison table looks like one very long
+  // paragraph. Real dealership spec tables were being flagged as walls of text.
+  const rows = Array.from(
+    { length: 8 },
+    (_, i) => `<tr><td>Model ${i}</td><td>A compact crossover suited to city driving</td>` +
+      `<td>Buyers who want space without bulk</td></tr>`,
+  ).join("");
+  const html = `<html><head><title>t</title></head><body><article>
+    <h1>Lineup</h1>
+    <p>${"Short intro sentence. ".repeat(5)}</p>
+    <table><tr><th>Model</th><th>What it is</th><th>Who it suits</th></tr>${rows}</table>
+  </article></body></html>`;
+
+  const a = extractArticle(html, "https://d.com/lineup");
+  const blocks = proseParagraphs(a.markdown);
+
+  assert.ok(!blocks.some((b) => b.includes("|")), "no table block may be treated as prose");
+  assert.ok(
+    blocks.every((b) => countWords(b) < 120),
+    `a table leaked into the prose blocks: ${blocks.map((b) => countWords(b)).join(", ")}`,
+  );
+  // The table content is still in the audited text, just not as a paragraph.
+  assert.match(a.text, /A compact crossover suited to city driving/);
+});
+
+test("headings, lists and quotes are not paragraphs either", () => {
+  const md = "# Title\n\nReal prose here.\n\n- item one\n- item two\n\n> a quote\n\n| a | b |\n| --- | --- |\n| 1 | 2 |";
+  assert.deepEqual(proseParagraphs(md), ["Real prose here."]);
 });

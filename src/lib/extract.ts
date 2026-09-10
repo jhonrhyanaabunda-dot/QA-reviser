@@ -550,3 +550,28 @@ export function markdownToPlainText(markdown: string): string {
 
   return rendered.filter(Boolean).join("\n\n");
 }
+
+/**
+ * The prose blocks of an article — what "paragraph" means for readability.
+ *
+ * Read from the markdown, where a table is still a table. Once flattened into
+ * plain text a comparison table looks exactly like one very long paragraph,
+ * and the readability rules flagged real dealership spec tables as walls of
+ * text. Headings, lists, quotes and code are excluded for the same reason:
+ * none of them is a paragraph.
+ */
+export function proseParagraphs(markdown: string): string[] {
+  return markdown
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => {
+      if (!block) return false;
+      const first = block.split("\n")[0];
+      if (/^\s{0,3}#{1,6}\s/.test(first)) return false;      // heading
+      if (/^\s*\|/.test(first)) return false;                 // table
+      if (/^\s{0,3}(?:[-*+]|\d+\.)\s/.test(first)) return false; // list
+      if (/^\s{0,3}>/.test(first)) return false;              // blockquote
+      if (/^\s*```/.test(first)) return false;                // code fence
+      return true;
+    });
+}

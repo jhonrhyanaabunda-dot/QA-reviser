@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { createAdminClient } from "@/lib/supabase/admin";
-import { countWords } from "@/lib/extract";
+import { countWords, proseParagraphs } from "@/lib/extract";
 import {
   SEVERITY_WEIGHT,
   type DetectedIssue,
@@ -208,7 +208,8 @@ export function runStructuralRules(
   }
 
   // --- Paragraph length ---
-  const paragraphs = article.text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  // Prose only: a flattened spec table is not a 260-word paragraph.
+  const paragraphs = proseParagraphs(article.markdown);
   paragraphs.forEach((paragraph, index) => {
     const words = countWords(paragraph);
     if (words > 120) {
